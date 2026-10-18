@@ -17,8 +17,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.app.DownloadManager
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.ComponentActivity
@@ -547,48 +545,6 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
         }.getOrDefault(emptyMap()))
     }
     var showCreatePlaylist by remember { mutableStateOf(false) }
-    var soundizzImportMessage by remember { mutableStateOf<String?>(null) }
-    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-    val soundizzImportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            runCatching {
-                val csv = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-                    ?: error("Não foi possível ler o arquivo CSV.")
-                val rows = csv.lineSequence().filter { it.isNotBlank() }.toList()
-                require(rows.size >= 2) { "O arquivo está vazio ou não contém faixas." }
-                val headers = parseSoundizzCsvLine(rows.first()).map { it.trim().lowercase().removePrefix("\uFEFF") }
-                fun findColumn(vararg names: String): Int = headers.indexOfFirst { header -> names.any { header.contains(it) } }
-                val titleColumn = findColumn("title", "track name", "track", "título", "música", "musica")
-                val artistColumn = findColumn("artist", "artista", "performer")
-                require(titleColumn >= 0) { "Não encontrei a coluna de título no CSV." }
-                val imported = rows.drop(1).mapNotNull { line ->
-                    val cols = parseSoundizzCsvLine(line)
-                    val trackTitle = cols.getOrNull(titleColumn)?.trim().orEmpty()
-                    val trackArtist = if (artistColumn >= 0) cols.getOrNull(artistColumn)?.trim().orEmpty() else ""
-                    if (trackTitle.isBlank()) null else trackTitle to trackArtist
-                }
-                require(imported.isNotEmpty()) { "Nenhuma faixa válida foi encontrada." }
-                fun normalized(value: String) = value.lowercase().filter { it.isLetterOrDigit() }
-                val matched = imported.mapNotNull { (trackTitle, trackArtist) ->
-                    tracks.firstOrNull { normalized(it.title) == normalized(trackTitle) && (trackArtist.isBlank() || normalized(it.artist) == normalized(trackArtist)) }
-                        ?: tracks.firstOrNull { normalized(it.title) == normalized(trackTitle) }
-                }.distinctBy { it.id }
-                val fileName = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.')?.takeIf { it.isNotBlank() && !it.startsWith("primary:") }
-                val baseName = fileName ?: "SOUNDIZZ importada"
-                var playlistName = baseName
-                var suffix = 2
-                while (playlistName in playlists) { playlistName = baseName + " (" + suffix + ")"; suffix++ }
-                val updatedPlaylists = playlists + (playlistName to matched.map { it.id }.toSet())
-                val playlistJson = org.json.JSONObject()
-                updatedPlaylists.forEach { (name, ids) -> playlistJson.put(name, org.json.JSONArray(ids.toList())) }
-                prefs.edit().putString("items", playlistJson.toString()).apply()
-                playlists = updatedPlaylists
-                val missing = (imported.size - matched.size).coerceAtLeast(0)
-                soundizzImportMessage = "Playlist ‘" + playlistName + "’ criada com " + matched.size + " músicas locais. " +
-                    if (missing > 0) missing.toString() + " faixas não foram encontradas no aparelho. O Soundiiz transfere os dados da playlist, não baixa os arquivos de áudio." else "Todas as faixas foram encontradas na biblioteca local."
-            }.onFailure { soundizzImportMessage = it.message ?: "Não foi possível importar esse arquivo." }
-        }
-    }
     var playlistName by remember { mutableStateOf("") }
     var editingPlaylist by remember { mutableStateOf<String?>(null) }
     fun persistPlaylists(value: Map<String, Set<Long>>) {
@@ -620,58 +576,6 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
         else if (tracks.isEmpty()) EmptyCard("Sua biblioteca está vazia", "As músicas locais aparecerão aqui quando houver arquivos de áudio no aparelho.", "Atualizar", onRefresh, Modifier.padding(horizontal = 16.dp))
         else {
             if (filter == "Playlists") {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(10.dp)).background(Panel).padding(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF1ED760)), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.SyncAlt, null, tint = Color.Black, modifier = Modifier.size(26.dp))
-                        }
-                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                            Text("SOUNDIZZ", color = White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text("Transfira playlists de outras plataformas", color = Gray, fontSize = 12.sp)
-                        }
-                        IconButton(onClick = { uriHandler.openUri("https://soundiiz.com/") }) { Icon(Icons.Default.OpenInNew, "Abrir Soundiiz", tint = Green) }
-                    }
-                    Text("Abra o Soundiiz, exporte a playlist em CSV e importe o arquivo abaixo. O SPOTMY monta a playlist com as músicas que já estão baixadas no aparelho.", color = Gray, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp, bottom = 10.dp))
-                    Button(onClick = { soundizzImportLauncher.launch(arrayOf("text/*", "text/csv", "application/octet-stream")) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) {
-                        Icon(Icons.Default.FileDownload, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Importar playlist CSV", fontWeight = FontWeight.Bold)
-                    }
-                }
-                Row(Modifier.fillMaxWidth().clickable { playlistName = ""; showCreatePlaylist = true }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(54.dp).background(PanelLight), contentAlignment = Alignment.Center) { Icon(Icons.Default.Add, null, tint = White, modifier = Modifier.size(30.dp)) }
-                    Column(Modifier.padding(start = 12.dp)) {
-                        Text("Criar playlist", color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Organize suas músicas favoritas", color = Gray, fontSize = 12.sp)
-                    }
-                }
-                playlists.keys.sorted().forEach { name ->
-                    val count = playlists[name]?.size ?: 0
-                    Row(Modifier.fillMaxWidth().clickable { editingPlaylist = name }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(54.dp).background(Color(0xFF315C42)), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.QueueMusic, null, tint = White, modifier = Modifier.size(28.dp))
-                        }
-                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                            Text(name, color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                            Text("$count músicas • Toque para editar", color = Gray, fontSize = 12.sp)
-                        }
-                        IconButton(onClick = {
-                            val selected = tracks.filter { it.id in (playlists[name] ?: emptySet()) }
-                            if (selected.isNotEmpty()) onPlay(selected.first())
-                            else android.widget.Toast.makeText(context, "Adicione músicas a esta playlist primeiro.", android.widget.Toast.LENGTH_SHORT).show()
-                        }) { Icon(Icons.Default.PlayArrow, "Reproduzir playlist", tint = Green) }
-                    }
-                }
-            }
-            val artistCredits = tracks.flatMap { track -> splitArtistCredits(track.artist).map { name -> name to track } }
-            val artistList = artistCredits.map { it.first }.distinctBy { it.lowercase() }.let { names -> if (alphabetical) names.sortedBy { it.lowercase() } else names }
-            var selectedArtist by remember { mutableStateOf<String?>(null) }
-            val list = when (filter) {
-                "Álbuns" -> tracks.distinctBy { it.album }
-                "Artistas" -> tracks.filter { track -> selectedArtist?.let { chosen -> splitArtistCredits(track.artist).any { it.equals(chosen, true) } } ?: false }
-                else -> tracks
-            }.let { if (alphabetical) it.sortedBy { t -> t.title.lowercase() } else it }
-            if (filter == "Artistas" && selectedArtist == null) {
                 LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
                     items(artistList, key = { "artist-" + it.lowercase() }) { name ->
                         val count = tracks.count { track -> splitArtistCredits(track.artist).any { it.equals(name, true) } }
@@ -705,12 +609,6 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
                 }
             }
         }
-    }
-    soundizzImportMessage?.let { message ->
-        AlertDialog(onDismissRequest = { soundizzImportMessage = null }, containerColor = Panel,
-            title = { Text("SOUNDIZZ • Importação", color = White) },
-            text = { Text(message, color = Gray) },
-            confirmButton = { TextButton(onClick = { soundizzImportMessage = null }) { Text("OK", color = Green) } })
     }
     if (showCreatePlaylist) {
         AlertDialog(
@@ -1532,25 +1430,6 @@ private fun splitArtistCredits(raw: String): List<String> {
         .map { it.trim().trim('-', '•') }
         .filter { it.isNotBlank() }
         .distinctBy { it.lowercase() }
-}
-
-private fun parseSoundizzCsvLine(line: String): List<String> {
-    val result = mutableListOf<String>()
-    val field = StringBuilder()
-    var quoted = false
-    var i = 0
-    while (i < line.length) {
-        val ch = line[i]
-        when {
-            ch == '"' && quoted && i + 1 < line.length && line[i + 1] == '"' -> { field.append('"'); i++ }
-            ch == '"' -> quoted = !quoted
-            ch == ',' && !quoted -> { result.add(field.toString()); field.setLength(0) }
-            else -> field.append(ch)
-        }
-        i++
-    }
-    result.add(field.toString())
-    return result
 }
 
 private fun timeLabel(milliseconds: Long): String {
