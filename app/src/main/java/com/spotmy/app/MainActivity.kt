@@ -17,6 +17,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -116,6 +118,31 @@ class MainActivity : ComponentActivity() {
     private var tracks by mutableStateOf<List<Track>>(emptyList())
     private var permissionGranted by mutableStateOf(false)
     private var controllerFuture: ListenableFuture<MediaController>? = null
+    private val statsHandler = Handler(Looper.getMainLooper())
+    private val statsTick = object : Runnable {
+        override fun run() {
+            val player = controller
+            if (player?.isPlaying == true) {
+                val item = player.currentMediaItem
+                val title = item?.mediaMetadata?.title?.toString().orEmpty()
+                val artist = item?.mediaMetadata?.artist?.toString().orEmpty()
+                if (title.isNotBlank()) {
+                    val prefs = getSharedPreferences("spotmy_capsule", MODE_PRIVATE)
+                    val now = System.currentTimeMillis()
+                    val month = java.time.YearMonth.now().toString()
+                    val delta = 10_000L
+                    prefs.edit()
+                        .putLong("total_ms", prefs.getLong("total_ms", 0L) + delta)
+                        .putLong("month:$month", prefs.getLong("month:$month", 0L) + delta)
+                        .putLong("track:$title|$artist", prefs.getLong("track:$title|$artist", 0L) + delta)
+                        .putLong("artist:$artist", prefs.getLong("artist:$artist", 0L) + delta)
+                        .putLong("last_played_at", now)
+                        .apply()
+                }
+            }
+            statsHandler.postDelayed(this, 10_000L)
+        }
+    }
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permissionGranted = granted
         if (granted) refreshTracks()
@@ -123,6 +150,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        statsHandler.postDelayed(statsTick, 10_000L)
         val audioPermission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
         val appearancePrefs = getSharedPreferences("spotmy_appearance", MODE_PRIVATE)
         lightTheme = appearancePrefs.getBoolean("light_theme", false)
@@ -193,13 +221,14 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        statsHandler.removeCallbacks(statsTick)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controller = null
         super.onDestroy()
     }
 }
 
-private enum class Tab { HOME, SEARCH, LIBRARY, SETTINGS }
+private enum class Tab { HOME, SEARCH, LIBRARY, CAPSULE, SETTINGS }
 
 @Composable
 private fun SpotmyApp(
@@ -247,7 +276,7 @@ private fun SpotmyApp(
                     NavigationBar(containerColor = Color.Black, tonalElevation = 0.dp, modifier = Modifier.height(64.dp)) {
                         listOf(Triple(Tab.HOME, "Início", Icons.Default.Home),
                             Triple(Tab.SEARCH, "Buscar", Icons.Default.Search),
-                            Triple(Tab.LIBRARY, "Sua Biblioteca", Icons.Default.LibraryMusic), Triple(Tab.SETTINGS, "Configurações", Icons.Default.Settings)).forEach { item ->
+                            Triple(Tab.LIBRARY, "Sua Biblioteca", Icons.Default.LibraryMusic), Triple(Tab.CAPSULE, "Cápsula", Icons.Default.History), Triple(Tab.SETTINGS, "Configurações", Icons.Default.Settings)).forEach { item ->
                             NavigationBarItem(
                                 selected = tab == item.first, onClick = { tab = item.first },
                                 icon = { Icon(item.third, item.second, Modifier.size(24.dp)) },
@@ -266,6 +295,7 @@ private fun SpotmyApp(
                     Tab.HOME -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["home"] ?: fontFamilies["app"] ?: FontFamily.Default)) { HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { onPlayQueue(it); expandedPlayer = true }, onQueueNext, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS }) }
                     Tab.SEARCH -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["search"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SearchScreen(query, { query = it }, filtered, hasPermission, onPermission, onQueueNext) { onPlay(it); expandedPlayer = true } }
                     Tab.LIBRARY -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["library"] ?: fontFamilies["app"] ?: FontFamily.Default)) { LibraryScreen(tracks, hasPermission, onPermission, onRefresh, onQueueNext) { onPlay(it); expandedPlayer = true } }
+                    Tab.CAPSULE -> CapsuleScreen()
                     Tab.SETTINGS -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["settings"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SettingsScreen(player, fontFamilies, lightTheme = lightTheme, accentArgb = accentArgb, onAppearanceChange = onAppearanceChange, onImportFont = onImportFont) }
                 }
             }
@@ -965,6 +995,61 @@ private fun createStoryShareImage(context: android.content.Context, title: Strin
     return file
 }
 
+
+@Composable
+private fun CapsuleScreen() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var snapshot by remember { mutableStateOf<Map<String, Any>>(emptyMap()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            snapshot = context.getSharedPreferences("spotmy_capsule", android.content.Context.MODE_PRIVATE).all
+            delay(10_000L)
+        }
+    }
+    val month = java.time.YearMonth.now().toString()
+    val total = (snapshot["total_ms"] as? Long) ?: 0L
+    val monthTotal = (snapshot["month:$month"] as? Long) ?: 0L
+    val artists = snapshot.filterKeys { it.startsWith("artist:") }.entries.sortedByDescending { it.value as? Long ?: 0L }.take(5)
+    val songs = snapshot.filterKeys { it.startsWith("track:") }.entries.sortedByDescending { it.value as? Long ?: 0L }.take(5)
+    fun duration(ms: Long): String {
+        val minutes = ms.coerceAtLeast(0L) / 60_000L
+        return if (minutes >= 60L) "${minutes / 60} h ${minutes % 60} min" else "${minutes} min"
+    }
+    Column(Modifier.fillMaxSize().background(Black).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 22.dp)) {
+        Text("Cápsula do Tempo", color = White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text("Sua história musical, registrada neste aparelho.", color = Gray, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp, bottom = 18.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Panel).padding(16.dp)) {
+                Icon(Icons.Default.Headphones, null, tint = Green)
+                Text(duration(monthTotal), color = White, fontSize = 21.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
+                Text("Este mês", color = Gray, fontSize = 12.sp)
+            }
+            Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Panel).padding(16.dp)) {
+                Icon(Icons.Default.History, null, tint = Green)
+                Text(duration(total), color = White, fontSize = 21.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
+                Text("Desde a ativação", color = Gray, fontSize = 12.sp)
+            }
+        }
+        Text("ARTISTAS MAIS OUVIDOS", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 24.dp, bottom = 8.dp))
+        if (artists.isEmpty()) Text("As estatísticas aparecem enquanto você ouve músicas com o SPOTMY aberto ou em segundo plano.", color = Gray, fontSize = 13.sp)
+        artists.forEachIndexed { index, entry ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("${index + 1}", color = Green, fontWeight = FontWeight.Bold, modifier = Modifier.width(28.dp))
+                Column(Modifier.weight(1f)) { Text(entry.key.removePrefix("artist:"), color = White, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(duration(entry.value as? Long ?: 0L), color = Gray, fontSize = 12.sp) }
+            }
+        }
+        Text("FAIXAS MAIS OUVIDAS", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 24.dp, bottom = 8.dp))
+        songs.forEachIndexed { index, entry ->
+            val parts = entry.key.removePrefix("track:").split("|", limit = 2)
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("${index + 1}", color = Green, fontWeight = FontWeight.Bold, modifier = Modifier.width(28.dp))
+                Column(Modifier.weight(1f)) { Text(parts.firstOrNull().orEmpty(), color = White, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(parts.getOrNull(1).orEmpty(), color = Gray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                Text(duration(entry.value as? Long ?: 0L), color = Gray, fontSize = 11.sp)
+            }
+        }
+        Text("Os registros começam nesta versão; reproduções anteriores não podem ser recuperadas. O histórico fica salvo localmente.", color = Gray, fontSize = 11.sp, modifier = Modifier.padding(top = 24.dp, bottom = 20.dp))
+    }
+}
 
 @Composable
 private fun SettingsScreen(player: MediaController?, fontFamilies: Map<String, FontFamily>, lightTheme: Boolean, accentArgb: Long, onAppearanceChange: (Boolean, Long) -> Unit, onImportFont: (String) -> Unit) {
