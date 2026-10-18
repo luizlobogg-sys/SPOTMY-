@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -272,7 +273,7 @@ private fun SearchScreen(query: String, onQuery: (String) -> Unit, tracks: List<
                 columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(2), modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(categories.size) { index ->
+                gridItems(categories.size) { index ->
                     val category = categories[index]
                     Box(Modifier.fillMaxWidth().height(100.dp).clip(RoundedCornerShape(7.dp)).background(Color(category.second))
                         .clickable { onQuery(category.first) }.padding(12.dp)) {
