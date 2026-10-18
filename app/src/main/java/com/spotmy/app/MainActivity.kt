@@ -93,10 +93,7 @@ class MainActivity : ComponentActivity() {
         if (permissionGranted) refreshTracks()
         runCatching {
             val areas = listOf("home", "search", "library", "settings", "player", "lyrics")
-            customFontFamilies = areas.mapNotNull { area ->
-                val fontFile = java.io.File(filesDir, "spotmy_font_$area")
-                if (fontFile.exists()) runCatching { area to FontFamily(Typeface.createFromFile(fontFile)) }.getOrNull() else null
-            }.toMap()
+            customFontFamilies = areas.mapNotNull { area -> val fontFile = java.io.File(filesDir, "spotmy_font_$area"); if (fontFile.exists()) runCatching { area to FontFamily(Typeface.createFromFile(fontFile)) }.getOrNull() else null }.toMap()
         }
         setContent {
             MaterialTheme(
@@ -489,9 +486,7 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
     var lyricsStatus by remember { mutableStateOf("Buscando letras...") }
     val context = androidx.compose.ui.platform.LocalContext.current
     val lyricsPicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) runCatching { context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: error("Arquivo vazio") }
-            .onSuccess { imported -> lyricsText = imported.replace(Regex("\\[(\\d{1,2}:\\d{2}(?:\\.\\d{1,3})?)\\]"), "").trim(); lyricsStatus = "Letra importada do aparelho • sem sincronização"; context.getSharedPreferences("spotmy_lyrics", android.content.Context.MODE_PRIVATE).edit().putString(title + "|" + artist, imported).apply() }
-            .onFailure { android.widget.Toast.makeText(context, "Não foi possível abrir a letra.", android.widget.Toast.LENGTH_SHORT).show() }
+        if (uri != null) runCatching { context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: error("Arquivo vazio") }.onSuccess { imported -> lyricsText = imported.replace(Regex("\\[(\\d{1,2}:\\d{2}(?:\\.\\d{1,3})?)\\]"), "").trim(); lyricsStatus = "Letra importada do aparelho • sem sincronização"; context.getSharedPreferences("spotmy_lyrics", android.content.Context.MODE_PRIVATE).edit().putString(title + "|" + artist, imported).apply() }.onFailure { android.widget.Toast.makeText(context, "Não foi possível abrir a letra.", android.widget.Toast.LENGTH_SHORT).show() }
     }
     DisposableEffect(player) {
         val listener = object : androidx.media3.common.Player.Listener {
@@ -505,15 +500,109 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
     }
     LaunchedEffect(showLyrics, title, artist, album, duration) {
         if (showLyrics) {
-            Dialog(onDismissRequest = { showLyrics = false }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+            lyricsText = ""
+            lyricsStatus = "Buscando letras..."
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val query = "track_name=" + URLEncoder.encode(title, "UTF-8") +
+                        "&artist_name=" + URLEncoder.encode(artist, "UTF-8") +
+                        (if (album.isNotBlank()) "&album_name=" + URLEncoder.encode(album, "UTF-8") else "") +
+                        (if (duration > 0L) "&duration=" + (duration / 1000L).coerceAtLeast(1L) else "")
+                    val connection = (URL("https://lrclib.net/api/get?$query").openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                        setRequestProperty("Lrclib-Client", "SPOTMY/2.6 (https://github.com/luizlobogg-sys/SPOTMY-)")
+                    }
+                    try {
+                        if (connection.responseCode !in 200..299) null
+                        else JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                    } finally { connection.disconnect() }
+                }.getOrNull()
+            }
+            val localLyrics = context.getSharedPreferences("spotmy_lyrics", android.content.Context.MODE_PRIVATE).getString(title + "|" + artist, null)
+            val lyrics = localLyrics ?: result?.optString("plainLyrics").orEmpty().ifBlank { result?.optString("syncedLyrics").orEmpty() }
+            if (lyrics.isNotBlank() && lyrics != "null") {
+                lyricsText = lyrics.replace(Regex("\\[(\\d{1,2}:\\d{2}(?:\\.\\d{1,3})?)\\]"), "").replace(Regex("\\n{3,}"), "\\n\\n").trim()
+                lyricsStatus = if (localLyrics != null) "Letra importada do aparelho • sem sincronização" else "Letra no SPOTMY • sem sincronização"
+            } else {
+                lyricsStatus = "Letra não encontrada para esta gravação. Tente pesquisar pelo título e artista."
+            }
+        }
+    }
+    Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).background(Brush.verticalGradient(listOf(Color(0xFF3D4540), Color(0xFF202320), Black)))) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+            Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Minimizar", tint = White, modifier = Modifier.size(30.dp)) }
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("TOCANDO AGORA", color = White, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                    Text(album.ifBlank { "Músicas locais" }, color = Gray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                IconButton(onClick = { showLyrics = true }) { Icon(Icons.Default.Lyrics, "Ver letra", tint = White) }
+            }
+            Spacer(Modifier.height(12.dp))
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Cover(artwork, Modifier.fillMaxWidth().aspectRatio(1f).heightIn(max = 360.dp), false)
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, color = White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(artist, color = Gray, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 5.dp))
+                }
+                IconButton(onClick = { liked = !liked }) {
+                    Icon(if (liked) Icons.Default.Favorite else Icons.Default.FavoriteBorder, "Curtir", tint = if (liked) Green else White, modifier = Modifier.size(26.dp))
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Slider(value = if (duration > 0) position.coerceIn(0L, duration).toFloat() else 0f,
+                onValueChange = { position = it.toLong() }, onValueChangeFinished = { if (duration > 0) player.seekTo(position.coerceIn(0L, duration)) },
+                valueRange = 0f..duration.coerceAtLeast(1L).toFloat(), colors = SliderDefaults.colors(thumbColor = White, activeTrackColor = White, inactiveTrackColor = Color(0xFF777777)),
+                modifier = Modifier.height(28.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(timeLabel(position), color = Gray, fontSize = 11.sp)
+                Text("-" + timeLabel((duration - position).coerceAtLeast(0L)), color = Gray, fontSize = 11.sp)
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                IconButton(onClick = { player.shuffleModeEnabled = !player.shuffleModeEnabled }) { Icon(Icons.Default.Shuffle, "Aleatório", tint = if (player.shuffleModeEnabled) Green else Gray) }
+                IconButton(onClick = { player.seekToPreviousMediaItem() }) { Icon(Icons.Default.SkipPrevious, "Anterior", tint = White, modifier = Modifier.size(35.dp)) }
+                Box(Modifier.size(62.dp).clip(CircleShape).background(White).clickable { if (player.isPlaying) player.pause() else player.play() }, contentAlignment = Alignment.Center) {
+                    Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, "Reproduzir", tint = Color.Black, modifier = Modifier.size(38.dp))
+                }
+                IconButton(onClick = { player.seekToNextMediaItem() }) { Icon(Icons.Default.SkipNext, "Próxima", tint = White, modifier = Modifier.size(35.dp)) }
+                IconButton(onClick = { player.repeatMode = when (player.repeatMode) {
+                    androidx.media3.common.Player.REPEAT_MODE_OFF -> androidx.media3.common.Player.REPEAT_MODE_ALL
+                    androidx.media3.common.Player.REPEAT_MODE_ALL -> androidx.media3.common.Player.REPEAT_MODE_ONE
+                    else -> androidx.media3.common.Player.REPEAT_MODE_OFF
+                } }) { Icon(Icons.Default.Repeat, "Repetir", tint = if (player.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) Gray else Green) }
+            }
+            Spacer(Modifier.height(22.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Icon(Icons.Default.Devices, "Dispositivos", tint = Green)
+                val context = androidx.compose.ui.platform.LocalContext.current
+                IconButton(onClick = {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, title)
+                        putExtra(Intent.EXTRA_TEXT, "Estou ouvindo $title — $artist no SPOTMY.")
+                    }
+                    context.startActivity(Intent.createChooser(send, "Compartilhar música"))
+                }) { Icon(Icons.Default.Share, "Compartilhar", tint = White) }
+                IconButton(onClick = {
+                    android.widget.Toast.makeText(context, "A fila está disponível pelos controles de próxima música.", android.widget.Toast.LENGTH_SHORT).show()
+                }) { Icon(Icons.Default.QueueMusic, "Fila", tint = Gray) }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+
+        if (showLyrics) {
+            Dialog(onDismissRequest = { showLyrics = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
                 MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = Typography(defaultFontFamily = lyricsFont ?: FontFamily.Default)) {
                     Column(Modifier.fillMaxSize().background(Black).windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 22.dp)) {
                         Row(Modifier.fillMaxWidth().height(60.dp), verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { showLyrics = false }) { Icon(Icons.Default.ArrowBack, "Voltar", tint = White) }
-                            Column(Modifier.weight(1f)) {
-                                Text("LETRA", color = Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
-                                Text(title, color = White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
+                            Column(Modifier.weight(1f)) { Text("LETRA", color = Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp); Text(title, color = White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             IconButton(onClick = { lyricsPicker.launch(arrayOf("text/plain", "application/octet-stream")) }) { Icon(Icons.Default.FileOpen, "Importar letra", tint = Green) }
                         }
                         Text(artist, color = Gray, fontSize = 13.sp, modifier = Modifier.padding(start = 12.dp, bottom = 12.dp))
@@ -521,24 +610,15 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
                         Text(lyricsStatus, color = Gray, fontSize = 11.sp, modifier = Modifier.padding(vertical = 12.dp))
                         if (lyricsText.isBlank()) {
                             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                CircularProgressIndicator(color = Green)
-                                Spacer(Modifier.height(16.dp))
-                                Text("Buscando a letra…", color = Gray)
-                                Spacer(Modifier.height(12.dp))
+                                CircularProgressIndicator(color = Green); Spacer(Modifier.height(16.dp)); Text("Buscando a letra…", color = Gray)
                                 TextButton(onClick = { lyricsPicker.launch(arrayOf("text/plain", "application/octet-stream")) }) { Text("Importar arquivo .TXT ou .LRC", color = Green) }
                                 Text("O SPOTMY não importa diretamente o catálogo de letras do Spotify.", color = Gray, fontSize = 11.sp)
                             }
                         } else {
                             LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(top = 12.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
-                                items(lyricsText.lines().filter { it.isNotBlank() }) { line ->
-                                    Text(line, color = White, fontSize = 19.sp, lineHeight = 29.sp, fontWeight = FontWeight.Medium)
-                                }
+                                items(lyricsText.lines().filter { it.isNotBlank() }) { line -> Text(line, color = White, fontSize = 19.sp, lineHeight = 29.sp, fontWeight = FontWeight.Medium) }
                             }
-                            TextButton(onClick = { lyricsPicker.launch(arrayOf("text/plain", "application/octet-stream")) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                                Icon(Icons.Default.FileOpen, null, tint = Green)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Importar outra letra (.TXT / .LRC)", color = Green)
-                            }
+                            TextButton(onClick = { lyricsPicker.launch(arrayOf("text/plain", "application/octet-stream")) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Icon(Icons.Default.FileOpen, null, tint = Green); Spacer(Modifier.width(8.dp)); Text("Importar outra letra (.TXT / .LRC)", color = Green) }
                         }
                     }
                 }
@@ -591,9 +671,7 @@ private fun SettingsScreen(player: MediaController?, fontFamilies: Map<String, F
         var areaMenu by remember { mutableStateOf(false) }
         Box(Modifier.padding(horizontal = 20.dp)) {
             OutlinedButton(onClick = { areaMenu = true }, modifier = Modifier.fillMaxWidth()) { Text(when(fontArea) { "home" -> "Início"; "search" -> "Buscar"; "library" -> "Biblioteca"; "settings" -> "Configurações"; "player" -> "Player"; else -> "Letras" }, color = White); Spacer(Modifier.weight(1f)); Icon(Icons.Default.ArrowDropDown, null, tint = White) }
-            DropdownMenu(expanded = areaMenu, onDismissRequest = { areaMenu = false }) {
-                listOf("home" to "Início", "search" to "Buscar", "library" to "Biblioteca", "settings" to "Configurações", "player" to "Player", "lyrics" to "Letras").forEach { (key, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { fontArea = key; areaMenu = false }) }
-            }
+            DropdownMenu(expanded = areaMenu, onDismissRequest = { areaMenu = false }) { listOf("home" to "Início", "search" to "Buscar", "library" to "Biblioteca", "settings" to "Configurações", "player" to "Player", "lyrics" to "Letras").forEach { (key, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { fontArea = key; areaMenu = false }) } }
         }
         Row(Modifier.fillMaxWidth().clickable { onImportFont(fontArea) }.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.TextFields, null, tint = White)
