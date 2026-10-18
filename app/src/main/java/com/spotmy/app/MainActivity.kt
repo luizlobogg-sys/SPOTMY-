@@ -876,6 +876,21 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
 }
 
 
+private fun wrapCanvasText(text: String, paint: Paint, maxWidth: Float): List<String> {
+    val words = text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    val lines = mutableListOf<String>()
+    var line = ""
+    for (word in words) {
+        val candidate = if (line.isEmpty()) word else "$line $word"
+        if (paint.measureText(candidate) > maxWidth && line.isNotEmpty()) {
+            lines.add(line)
+            line = word
+        } else line = candidate
+    }
+    if (line.isNotEmpty()) lines.add(line)
+    return lines
+}
+
 private fun createStoryShareImage(context: android.content.Context, title: String, artist: String, album: String, artwork: Uri?): java.io.File {
     val width = 1080
     val height = 1920
@@ -886,46 +901,63 @@ private fun createStoryShareImage(context: android.content.Context, title: Strin
             AndroidColor.rgb(34, 75, 52), AndroidColor.rgb(8, 8, 8), Shader.TileMode.CLAMP)
     }
     canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), background)
-    val left = 80f
-    val right = 1000f
+    val left = 78f
+    val right = 1002f
     val coverTop = 250f
-    val coverSize = 920f
+    val coverSize = 924f
+    val accent = AndroidColor.rgb(30, 215, 96)
+    val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.argb(26, 30, 215, 96) }
+    canvas.drawCircle(960f, 220f, 240f, halo)
+    canvas.drawCircle(70f, 1190f, 190f, halo)
+    val coverRect = RectF(left, coverTop, right, coverTop + coverSize)
     val cover = runCatching {
         artwork?.let { uri -> context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } }
     }.getOrNull()
+    val coverPath = android.graphics.Path().apply { addRoundRect(coverRect, 34f, 34f, android.graphics.Path.Direction.CW) }
+    canvas.save()
+    canvas.clipPath(coverPath)
     if (cover != null) {
         val scale = maxOf(coverSize / cover.width, coverSize / cover.height)
         val scaled = Bitmap.createScaledBitmap(cover, (cover.width * scale).toInt(), (cover.height * scale).toInt(), true)
         val srcLeft = ((scaled.width - coverSize) / 2f).toInt()
         val srcTop = ((scaled.height - coverSize) / 2f).toInt()
         canvas.drawBitmap(scaled, android.graphics.Rect(srcLeft, srcTop, srcLeft + coverSize.toInt(), srcTop + coverSize.toInt()),
-            RectF(left, coverTop, right, coverTop + coverSize), Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+            coverRect, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
         if (scaled !== cover) scaled.recycle()
         cover.recycle()
     } else {
         val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.rgb(45, 70, 52) }
-        canvas.drawRoundRect(RectF(left, coverTop, right, coverTop + coverSize), 30f, 30f, p)
-        p.color = AndroidColor.WHITE
-        p.textSize = 180f
-        p.typeface = Typeface.create("sans-serif", Typeface.BOLD)
-        canvas.drawText("SP", 390f, coverTop + 520f, p)
+        canvas.drawRect(coverRect, p)
+        p.color = AndroidColor.WHITE; p.textSize = 180f; p.typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        canvas.drawText("SPOTMY", 300f, coverTop + 510f, p)
     }
+    canvas.restore()
+    val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.argb(90, 255, 255, 255); style = Paint.Style.STROKE; strokeWidth = 3f }
+    canvas.drawRoundRect(coverRect, 34f, 34f, border)
     val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.WHITE; typeface = Typeface.create("sans-serif", Typeface.BOLD) }
     whitePaint.textSize = 38f
-    canvas.drawText("SPOTMY  •  OUVINDO AGORA", left, 150f, whitePaint)
-    whitePaint.textSize = 58f
-    canvas.drawText(title.take(28), left, 1280f, whitePaint)
-    whitePaint.textSize = 42f
-    whitePaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
-    canvas.drawText(artist.take(38), left, 1350f, whitePaint)
-    val muted = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.LTGRAY; textSize = 30f }
-    canvas.drawText((album.ifBlank { "Música local" }).take(45), left, 1410f, muted)
-    val green = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.rgb(30, 215, 96) }
-    canvas.drawRoundRect(RectF(left, 1500f, left + 72f, 1572f), 36f, 36f, green)
-    val note = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.BLACK; textSize = 44f; typeface = Typeface.DEFAULT_BOLD }
-    canvas.drawText("♪", left + 20f, 1550f, note)
-    whitePaint.textSize = 34f
-    canvas.drawText("Sua música. Seu momento.", left + 95f, 1548f, whitePaint)
+    canvas.drawText("SPOTMY", left, 128f, whitePaint)
+    val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent; textSize = 27f; typeface = Typeface.DEFAULT_BOLD }
+    canvas.drawText("SUA TRILHA SONORA", left, 184f, label)
+    whitePaint.textSize = 57f
+    val titleLines = wrapCanvasText(title, whitePaint, 900f).take(2)
+    var titleY = 1285f
+    titleLines.forEach { line -> canvas.drawText(line, left, titleY, whitePaint); titleY += 66f }
+    whitePaint.textSize = 40f
+    whitePaint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    canvas.drawText(wrapCanvasText(artist, whitePaint, 900f).firstOrNull().orEmpty(), left, titleY + 4f, whitePaint)
+    val muted = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.LTGRAY; textSize = 28f }
+    canvas.drawText(wrapCanvasText(album.ifBlank { "Música local" }, muted, 900f).firstOrNull().orEmpty(), left, titleY + 55f, muted)
+    val green = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
+    canvas.drawRoundRect(RectF(left, 1510f, left + 66f, 1576f), 33f, 33f, green)
+    val note = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.BLACK; textSize = 42f; typeface = Typeface.DEFAULT_BOLD }
+    canvas.drawText("♪", left + 18f, 1555f, note)
+    whitePaint.textSize = 32f
+    canvas.drawText("Compartilhado pelo SPOTMY", left + 88f, 1552f, whitePaint)
+    val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.argb(110, 255, 255, 255); strokeWidth = 2f }
+    canvas.drawLine(left, 1640f, right, 1640f, linePaint)
+    val footer = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.LTGRAY; textSize = 26f }
+    canvas.drawText("OUÇA • DESCUBRA • REPITA", left, 1700f, footer)
     val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
     val file = java.io.File(dir, "spotmy_story.png")
     file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
