@@ -114,13 +114,13 @@ class MainActivity : ComponentActivity() {
         permissionGranted = ContextCompat.checkSelfPermission(this, audioPermission) == PackageManager.PERMISSION_GRANTED
         if (permissionGranted) refreshTracks()
         runCatching {
-            val areas = listOf("home", "search", "library", "settings", "player", "lyrics")
+            val areas = listOf("app", "home", "search", "library", "settings", "player", "lyrics")
             customFontFamilies = areas.mapNotNull { area -> val fontFile = java.io.File(filesDir, "spotmy_font_$area"); if (fontFile.exists()) runCatching { area to FontFamily(Typeface.createFromFile(fontFile)) }.getOrNull() else null }.toMap()
         }
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White),
-                typography = Typography()
+                typography = typographyFor(customFontFamilies["app"] ?: FontFamily.Default)
             ) {
                 SpotmyApp(tracks, permissionGranted, controller, customFontFamilies,
                     { permissionLauncher.launch(audioPermission) }, ::refreshTracks, ::playTrack,
@@ -193,7 +193,7 @@ private fun SpotmyApp(
     androidx.activity.compose.BackHandler(enabled = expandedPlayer) { expandedPlayer = false }
 
     if (expandedPlayer && player != null && player.currentMediaItem != null) {
-        MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["player"] ?: FontFamily.Default)) { NowPlaying(title, artist, album, artwork, player, fontFamilies["lyrics"]) { expandedPlayer = false } }
+        MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["player"] ?: fontFamilies["app"] ?: FontFamily.Default)) { NowPlaying(title, artist, album, artwork, player, fontFamilies["lyrics"]) { expandedPlayer = false } }
     } else {
         Scaffold(
             containerColor = Black,
@@ -219,10 +219,10 @@ private fun SpotmyApp(
         ) { padding ->
             Box(Modifier.fillMaxSize().background(Black).padding(padding)) {
                 when (tab) {
-                    Tab.HOME -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["home"] ?: FontFamily.Default)) { HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS }) }
-                    Tab.SEARCH -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["search"] ?: FontFamily.Default)) { SearchScreen(query, { query = it }, filtered, hasPermission, onPermission) { onPlay(it); expandedPlayer = true } }
-                    Tab.LIBRARY -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["library"] ?: FontFamily.Default)) { LibraryScreen(tracks, hasPermission, onPermission, onRefresh) { onPlay(it); expandedPlayer = true } }
-                    Tab.SETTINGS -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["settings"] ?: FontFamily.Default)) { SettingsScreen(player, fontFamilies, onImportFont) }
+                    Tab.HOME -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["home"] ?: fontFamilies["app"] ?: FontFamily.Default)) { HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS }) }
+                    Tab.SEARCH -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["search"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SearchScreen(query, { query = it }, filtered, hasPermission, onPermission) { onPlay(it); expandedPlayer = true } }
+                    Tab.LIBRARY -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["library"] ?: fontFamilies["app"] ?: FontFamily.Default)) { LibraryScreen(tracks, hasPermission, onPermission, onRefresh) { onPlay(it); expandedPlayer = true } }
+                    Tab.SETTINGS -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["settings"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SettingsScreen(player, fontFamilies, onImportFont) }
                 }
             }
         }
@@ -659,8 +659,8 @@ private fun SettingsScreen(player: MediaController?, fontFamilies: Map<String, F
     var shuffle by remember(player) { mutableStateOf(player?.shuffleModeEnabled ?: false) }
     var repeat by remember(player) { mutableIntStateOf(player?.repeatMode ?: androidx.media3.common.Player.REPEAT_MODE_OFF) }
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-    var fontArea by remember { mutableStateOf("home") }
-    Column(Modifier.fillMaxSize().background(Black)) {
+    var fontArea by remember { mutableStateOf("app") }
+    Column(Modifier.fillMaxSize().background(Black).verticalScroll(rememberScrollState())) {
         Text("Configurações", color = White, fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 20.dp, top = 22.dp, bottom = 18.dp))
         Text("REPRODUÇÃO", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
         Row(Modifier.fillMaxWidth().clickable { shuffle = !shuffle; player?.shuffleModeEnabled = shuffle }.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -722,11 +722,11 @@ private fun SettingsScreen(player: MediaController?, fontFamilies: Map<String, F
         }
         Divider(color = PanelLight, modifier = Modifier.padding(vertical = 8.dp))
         Text("APARÊNCIA", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-        Text("Área que receberá a fonte", color = Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        Text("Escolha uma área específica ou altere a tipografia do aplicativo inteiro.", color = Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
         var areaMenu by remember { mutableStateOf(false) }
         Box(Modifier.padding(horizontal = 20.dp)) {
-            OutlinedButton(onClick = { areaMenu = true }, modifier = Modifier.fillMaxWidth()) { Text(when(fontArea) { "home" -> "Início"; "search" -> "Buscar"; "library" -> "Biblioteca"; "settings" -> "Configurações"; "player" -> "Player"; else -> "Letras" }, color = White); Spacer(Modifier.weight(1f)); Icon(Icons.Default.ArrowDropDown, null, tint = White) }
-            DropdownMenu(expanded = areaMenu, onDismissRequest = { areaMenu = false }) { listOf("home" to "Início", "search" to "Buscar", "library" to "Biblioteca", "settings" to "Configurações", "player" to "Player", "lyrics" to "Letras").forEach { (key, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { fontArea = key; areaMenu = false }) } }
+            OutlinedButton(onClick = { areaMenu = true }, modifier = Modifier.fillMaxWidth()) { Text(when(fontArea) { "app" -> "Aplicativo inteiro"; "home" -> "Início"; "search" -> "Buscar"; "library" -> "Biblioteca"; "settings" -> "Configurações"; "player" -> "Player"; else -> "Letras" }, color = White); Spacer(Modifier.weight(1f)); Icon(Icons.Default.ArrowDropDown, null, tint = White) }
+            DropdownMenu(expanded = areaMenu, onDismissRequest = { areaMenu = false }) { listOf("app" to "Aplicativo inteiro", "home" to "Início", "search" to "Buscar", "library" to "Biblioteca", "settings" to "Configurações", "player" to "Player", "lyrics" to "Letras").forEach { (key, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { fontArea = key; areaMenu = false }) } }
         }
         Row(Modifier.fillMaxWidth().clickable { onImportFont(fontArea) }.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.TextFields, null, tint = White)
