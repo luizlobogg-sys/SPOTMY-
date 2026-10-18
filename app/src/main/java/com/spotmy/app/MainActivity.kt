@@ -2,6 +2,7 @@ package com.spotmy.app
 
 import android.Manifest
 import android.content.ComponentName
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -298,6 +299,30 @@ private fun SearchScreen(query: String, onQuery: (String) -> Unit, tracks: List<
 private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Track) -> Unit) {
     var filter by remember { mutableStateOf("Playlists") }
     var alphabetical by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember { context.getSharedPreferences("spotmy_playlists", android.content.Context.MODE_PRIVATE) }
+    var playlists by remember {
+        mutableStateOf(runCatching {
+            val json = org.json.JSONObject(prefs.getString("items", "{}") ?: "{}")
+            buildMap {
+                val keys = json.keys()
+                while (keys.hasNext()) {
+                    val name = keys.next()
+                    val ids = json.optJSONArray(name) ?: org.json.JSONArray()
+                    put(name, (0 until ids.length()).mapNotNull { ids.optLong(it).takeIf { id -> id > 0L } }.toSet())
+                }
+            }
+        }.getOrDefault(emptyMap()))
+    }
+    var showCreatePlaylist by remember { mutableStateOf(false) }
+    var playlistName by remember { mutableStateOf("") }
+    var editingPlaylist by remember { mutableStateOf<String?>(null) }
+    fun persistPlaylists(value: Map<String, Set<Long>>) {
+        val json = org.json.JSONObject()
+        value.forEach { (name, ids) -> json.put(name, org.json.JSONArray(ids.toList())) }
+        prefs.edit().putString("items", json.toString()).apply()
+        playlists = value
+    }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(38.dp).clip(CircleShape).background(Color(0xFF5B2A87)), contentAlignment = Alignment.Center) {
@@ -319,11 +344,28 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
         else if (tracks.isEmpty()) EmptyCard("Sua biblioteca está vazia", "As músicas locais aparecerão aqui quando houver arquivos de áudio no aparelho.", "Atualizar", onRefresh, Modifier.padding(horizontal = 16.dp))
         else {
             if (filter == "Playlists") {
-                Row(Modifier.fillMaxWidth().clickable { }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().clickable { playlistName = ""; showCreatePlaylist = true }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(54.dp).background(PanelLight), contentAlignment = Alignment.Center) { Icon(Icons.Default.Add, null, tint = White, modifier = Modifier.size(30.dp)) }
                     Column(Modifier.padding(start = 12.dp)) {
                         Text("Criar playlist", color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         Text("Organize suas músicas favoritas", color = Gray, fontSize = 12.sp)
+                    }
+                }
+                playlists.keys.sorted().forEach { name ->
+                    val count = playlists[name]?.size ?: 0
+                    Row(Modifier.fillMaxWidth().clickable { editingPlaylist = name }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(54.dp).background(Color(0xFF315C42)), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.QueueMusic, null, tint = White, modifier = Modifier.size(28.dp))
+                        }
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(name, color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            Text("$count músicas • Toque para editar", color = Gray, fontSize = 12.sp)
+                        }
+                        IconButton(onClick = {
+                            val selected = tracks.filter { it.id in (playlists[name] ?: emptySet()) }
+                            if (selected.isNotEmpty()) onPlay(selected.first())
+                            else android.widget.Toast.makeText(context, "Adicione músicas a esta playlist primeiro.", android.widget.Toast.LENGTH_SHORT).show()
+                        }) { Icon(Icons.Default.PlayArrow, "Reproduzir playlist", tint = Green) }
                     }
                 }
             }
@@ -346,6 +388,63 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
                 }
             }
         }
+    }
+    if (showCreatePlaylist) {
+        AlertDialog(
+            onDismissRequest = { showCreatePlaylist = false },
+            containerColor = Panel,
+            title = { Text("Nova playlist", color = White) },
+            text = {
+                OutlinedTextField(value = playlistName, onValueChange = { playlistName = it },
+                    label = { Text("Nome da playlist") }, singleLine = true)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val name = playlistName.trim()
+                    if (name.isNotBlank() && name !in playlists) {
+                        persistPlaylists(playlists + (name to emptySet()))
+                        editingPlaylist = name
+                    }
+                    showCreatePlaylist = false
+                }) { Text("Criar", color = Green) }
+            },
+            dismissButton = { TextButton(onClick = { showCreatePlaylist = false }) { Text("Cancelar", color = White) } }
+        )
+    }
+    editingPlaylist?.let { name ->
+        val selectedIds = playlists[name] ?: emptySet()
+        AlertDialog(
+            onDismissRequest = { editingPlaylist = null },
+            containerColor = Panel,
+            title = { Text(name, color = White) },
+            text = {
+                Column(Modifier.heightIn(max = 440.dp)) {
+                    Text("Marque as músicas que deseja incluir.", color = Gray, fontSize = 12.sp)
+                    LazyColumn {
+                        items(tracks, key = { "pl-" + it.id }) { track ->
+                            Row(Modifier.fillMaxWidth().clickable {
+                                val updated = if (track.id in selectedIds) selectedIds - track.id else selectedIds + track.id
+                                persistPlaylists(playlists + (name to updated))
+                            }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = track.id in selectedIds, onCheckedChange = { checked ->
+                                    val updated = if (checked) selectedIds + track.id else selectedIds - track.id
+                                    persistPlaylists(playlists + (name to updated))
+                                })
+                                Column(Modifier.weight(1f)) {
+                                    Text(track.title, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(track.artist, color = Gray, fontSize = 11.sp, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { editingPlaylist = null }) { Text("Concluir", color = Green) } },
+            dismissButton = { TextButton(onClick = {
+                persistPlaylists(playlists - name)
+                editingPlaylist = null
+            }) { Text("Excluir", color = Color(0xFFFF7777)) } }
+        )
     }
 }
 
@@ -451,8 +550,18 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
             Spacer(Modifier.height(22.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Icon(Icons.Default.Devices, "Dispositivos", tint = Green)
-                Icon(Icons.Default.Share, "Compartilhar", tint = Gray)
-                Icon(Icons.Default.QueueMusic, "Fila", tint = Gray)
+                val context = androidx.compose.ui.platform.LocalContext.current
+                IconButton(onClick = {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, title)
+                        putExtra(Intent.EXTRA_TEXT, "Estou ouvindo $title — $artist no SPOTMY.")
+                    }
+                    context.startActivity(Intent.createChooser(send, "Compartilhar música"))
+                }) { Icon(Icons.Default.Share, "Compartilhar", tint = White) }
+                IconButton(onClick = {
+                    android.widget.Toast.makeText(context, "A fila está disponível pelos controles de próxima música.", android.widget.Toast.LENGTH_SHORT).show()
+                }) { Icon(Icons.Default.QueueMusic, "Fila", tint = Gray) }
             }
             Spacer(Modifier.height(20.dp))
         }
