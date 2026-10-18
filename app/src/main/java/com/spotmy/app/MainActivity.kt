@@ -725,6 +725,18 @@ private fun SnapMyScreen(onRefresh: () -> Unit) {
     var downloading by remember { mutableStateOf(false) }
     var progress by remember { mutableIntStateOf(0) }
     var mode by remember { mutableStateOf("YouTube") }
+    var cookiesImported by remember { mutableStateOf(File(context.filesDir, "youtube_cookies.txt").exists()) }
+    val cookiesPicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    File(context.filesDir, "youtube_cookies.txt").outputStream().use { output -> input.copyTo(output) }
+                } ?: error("Não foi possível ler o arquivo selecionado.")
+                cookiesImported = true
+                status = "Cookies importados somente neste aparelho. Tente novamente."
+            }.onFailure { status = it.message ?: "Não foi possível importar o arquivo de cookies." }
+        }
+    }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -751,6 +763,21 @@ private fun SnapMyScreen(onRefresh: () -> Unit) {
             else "Cole o link direto de um arquivo de áudio hospedado em um site que permita o download.",
             color = Gray, fontSize = 13.sp
         )
+        if (mode == "YouTube") {
+            OutlinedButton(
+                onClick = { cookiesPicker.launch(arrayOf("text/plain", "application/octet-stream", "*/*")) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Cookie, null)
+                Spacer(Modifier.width(8.dp))
+                Text(if (cookiesImported) "Atualizar cookies do YouTube" else "Importar cookies do YouTube")
+            }
+            Text(
+                if (cookiesImported) "Arquivo de cookies guardado localmente neste aparelho. Não o compartilhe; ele pode permitir acesso à sua conta."
+                else "Se o YouTube exigir verificação contra bots, importe um arquivo cookies.txt exportado por você. O arquivo fica no aparelho; não cole cookies no chat. Isso pode ajudar, mas não garante que o YouTube libere o download.",
+                color = Gray, fontSize = 11.sp
+            )
+        }
         OutlinedTextField(
             value = mediaUrl, onValueChange = { mediaUrl = it; status = null },
             modifier = Modifier.fillMaxWidth(),
@@ -804,6 +831,11 @@ private fun SnapMyScreen(onRefresh: () -> Unit) {
                                 val request = YoutubeDLRequest(raw)
                                 request.addOption("--no-mtime")
                                 request.addOption("--ignore-errors")
+                                // Cookies são opcionais e permanecem no armazenamento privado do app.
+                                val cookiesFile = File(context.filesDir, "youtube_cookies.txt")
+                                if (cookiesFile.isFile && cookiesFile.length() > 0L) {
+                                    request.addOption("--cookies", cookiesFile.absolutePath)
+                                }
                                 request.addOption("--extractor-retries", "3")
                                 request.addOption("--retry-sleep", "1:3:8")
                                 // Reduz a frequência das requisições para diminuir a chance de limite 429.
@@ -853,7 +885,17 @@ private fun SnapMyScreen(onRefresh: () -> Unit) {
                             }
                         }
                         result.onSuccess { message -> status = message; progress = 100; onRefresh() }
-                            .onFailure { error -> status = "Falha no download: " + (error.message ?: "erro desconhecido") + ". O YouTube pode ter alterado o formato ou exigir atualização do extrator." }
+                            .onFailure { error ->
+                                val details = error.message.orEmpty()
+                                status = when {
+                                    (details.contains("429", ignoreCase = true) ||
+                                        (details.contains("confirm", ignoreCase = true) && details.contains("bot", ignoreCase = true)) ||
+                                        details.contains("PO Token", ignoreCase = true) ||
+                                        details.contains("Visitor Data", ignoreCase = true)) ->
+                                        "O YouTube bloqueou a solicitação ou exige verificação/token. Aguarde antes de tentar de novo e, se necessário, importe seus cookies.txt no SNAPMY. Isso pode não resolver todos os bloqueios. Detalhes: $details"
+                                    else -> "Falha no download: " + (details.ifBlank { "erro desconhecido" }) + ". Verifique o link e tente novamente."
+                                }
+                            }
                         downloading = false
                     }
                 }
