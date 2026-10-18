@@ -630,6 +630,10 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
 
 @Composable
 private fun SettingsScreen(player: MediaController?, fontFamilies: Map<String, FontFamily>, onImportFont: (String) -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val playbackPrefs = remember { context.getSharedPreferences("spotmy_playback", android.content.Context.MODE_PRIVATE) }
+    var crossfadeEnabled by remember { mutableStateOf(playbackPrefs.getBoolean("crossfade_enabled", true)) }
+    var crossfadeSeconds by remember { mutableFloatStateOf(playbackPrefs.getInt("crossfade_seconds", 5).coerceIn(2, 12).toFloat()) }
     var shuffle by remember(player) { mutableStateOf(player?.shuffleModeEnabled ?: false) }
     var repeat by remember(player) { mutableIntStateOf(player?.repeatMode ?: androidx.media3.common.Player.REPEAT_MODE_OFF) }
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
@@ -652,6 +656,35 @@ private fun SettingsScreen(player: MediaController?, fontFamilies: Map<String, F
                 Text(when (repeat) { androidx.media3.common.Player.REPEAT_MODE_ALL -> "Repetir fila inteira"; androidx.media3.common.Player.REPEAT_MODE_ONE -> "Repetir música atual"; else -> "Desativada" }, color = Gray, fontSize = 12.sp)
             }
             Text(when (repeat) { androidx.media3.common.Player.REPEAT_MODE_ALL -> "Tudo"; androidx.media3.common.Player.REPEAT_MODE_ONE -> "1"; else -> "Off" }, color = Green)
+        }
+        Divider(color = PanelLight, modifier = Modifier.padding(vertical = 8.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.GraphicEq, null, tint = if (crossfadeEnabled) Green else White)
+            Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                Text("Mesclar músicas (crossfade)", color = White)
+                Text("Sobrepõe o final de uma faixa ao início da próxima", color = Gray, fontSize = 12.sp)
+            }
+            Switch(checked = crossfadeEnabled, onCheckedChange = {
+                crossfadeEnabled = it
+                playbackPrefs.edit().putBoolean("crossfade_enabled", it).apply()
+            })
+        }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Duração da transição", color = White, modifier = Modifier.weight(1f))
+                Text("${crossfadeSeconds.toInt()} s", color = Green, fontWeight = FontWeight.Bold)
+            }
+            Slider(
+                value = crossfadeSeconds,
+                onValueChange = {
+                    crossfadeSeconds = it
+                    playbackPrefs.edit().putInt("crossfade_seconds", it.toInt().coerceIn(2, 12)).apply()
+                },
+                valueRange = 2f..12f,
+                steps = 9,
+                enabled = crossfadeEnabled
+            )
+            Text("Funciona automaticamente entre faixas da fila. Padrão: 5 segundos.", color = Gray, fontSize = 11.sp)
         }
         Divider(color = PanelLight, modifier = Modifier.padding(vertical = 8.dp))
         Text("LETRAS E IDENTIFICAÇÃO", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
