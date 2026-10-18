@@ -133,7 +133,7 @@ class MainActivity : ComponentActivity() {
                 typography = typographyFor(customFontFamilies["app"] ?: FontFamily.Default)
             ) {
                 SpotmyApp(tracks, permissionGranted, controller, customFontFamilies,
-                    { permissionLauncher.launch(audioPermission) }, ::refreshTracks, ::playTrack,
+                    { permissionLauncher.launch(audioPermission) }, ::refreshTracks, ::playTrack, ::playTracks,
                     { area -> selectedFontArea = area; fontPickerLauncher.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream")) })
             }
         }
@@ -146,14 +146,19 @@ class MainActivity : ComponentActivity() {
     private fun refreshTracks() { tracks = runCatching { loadTracks(this) }.getOrDefault(emptyList()) }
 
     private fun playTrack(track: Track) {
+        playTracks(tracks, tracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
+    }
+
+    private fun playTracks(queue: List<Track>, startIndex: Int = 0) {
         val player = controller ?: return
-        val items = tracks.map { item ->
+        if (queue.isEmpty()) return
+        val items = queue.map { item ->
             MediaItem.Builder().setUri(item.uri).setMediaMetadata(
                 MediaMetadata.Builder().setTitle(item.title).setArtist(item.artist)
                     .setAlbumTitle(item.album).setArtworkUri(item.artworkUri).build()
             ).build()
         }
-        player.setMediaItems(items, tracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0), 0L)
+        player.setMediaItems(items, startIndex.coerceIn(0, items.lastIndex), 0L)
         player.prepare()
         player.play()
     }
@@ -170,7 +175,7 @@ private enum class Tab { HOME, SEARCH, LIBRARY, SETTINGS }
 @Composable
 private fun SpotmyApp(
     tracks: List<Track>, hasPermission: Boolean, player: MediaController?, fontFamilies: Map<String, FontFamily>,
-    onPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Track) -> Unit, onImportFont: (String) -> Unit
+    onPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Track) -> Unit, onPlayQueue: (List<Track>) -> Unit, onImportFont: (String) -> Unit
 ) {
     var tab by remember { mutableStateOf(Tab.HOME) }
     var query by remember { mutableStateOf("") }
@@ -229,7 +234,7 @@ private fun SpotmyApp(
         ) { padding ->
             Box(Modifier.fillMaxSize().background(Black).padding(padding)) {
                 when (tab) {
-                    Tab.HOME -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["home"] ?: fontFamilies["app"] ?: FontFamily.Default)) { HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS }) }
+                    Tab.HOME -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["home"] ?: fontFamilies["app"] ?: FontFamily.Default)) { HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { onPlayQueue(it); expandedPlayer = true }, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS }) }
                     Tab.SEARCH -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["search"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SearchScreen(query, { query = it }, filtered, hasPermission, onPermission) { onPlay(it); expandedPlayer = true } }
                     Tab.LIBRARY -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["library"] ?: fontFamilies["app"] ?: FontFamily.Default)) { LibraryScreen(tracks, hasPermission, onPermission, onRefresh) { onPlay(it); expandedPlayer = true } }
                     Tab.SETTINGS -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["settings"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SettingsScreen(player, fontFamilies, onImportFont) }
@@ -240,9 +245,33 @@ private fun SpotmyApp(
 }
 
 @Composable
-private fun HomeScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -> Unit, onPlay: (Track) -> Unit, onSearch: () -> Unit, onSettings: () -> Unit) {
+private fun HomeScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -> Unit, onPlay: (Track) -> Unit, onPlayQueue: (List<Track>) -> Unit, onSearch: () -> Unit, onSettings: () -> Unit) {
     var filter by remember { mutableStateOf("Tudo") }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val homePrefs = remember { context.getSharedPreferences("spotmy_home", android.content.Context.MODE_PRIVATE) }
+    val playlistPrefs = remember { context.getSharedPreferences("spotmy_playlists", android.content.Context.MODE_PRIVATE) }
+    var shortcuts by remember { mutableStateOf((0..5).associateWith { slot -> homePrefs.getString("slot_$slot", "") ?: "" }) }
+    var editingSlot by remember { mutableIntStateOf(-1) }
     val albums = tracks.distinctBy { if (it.album.isBlank()) it.id.toString() else it.album + "|" + it.artist }
+    val savedPlaylists = remember(tracks, shortcuts) {
+        runCatching {
+            val json = org.json.JSONObject(playlistPrefs.getString("items", "{}") ?: "{}")
+            buildMap<String, List<Track>> {
+                val keys = json.keys()
+                while (keys.hasNext()) {
+                    val name = keys.next()
+                    val ids = json.optJSONArray(name) ?: org.json.JSONArray()
+                    val idSet = (0 until ids.length()).mapNotNull { ids.optLong(it).takeIf { id -> id > 0L } }.toSet()
+                    put(name, tracks.filter { it.id in idSet })
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+    fun saveShortcut(slot: Int, value: String) {
+        homePrefs.edit().putString("slot_$slot", value).apply()
+        shortcuts = shortcuts + (slot to value)
+        editingSlot = -1
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         item {
             Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xFF3D2929), Color(0xFF211819), Black)))
@@ -275,17 +304,47 @@ private fun HomeScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -
                     Column(Modifier.padding(horizontal = 16.dp)) {
                         Text("Feito para você", color = White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(12.dp))
-                        tracks.take(6).chunked(2).forEach { pair ->
+                        (0..5).chunked(2).forEach { pair ->
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                                pair.forEach { track ->
-                                    Row(Modifier.weight(1f).height(58.dp).clip(RoundedCornerShape(4.dp)).background(PanelLight).clickable { onPlay(track) },
-                                        verticalAlignment = Alignment.CenterVertically) {
-                                        Cover(track.artworkUri, Modifier.size(58.dp), false)
-                                        Text(track.title, color = White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                                            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
+                                pair.forEach { slot ->
+                                    val key = shortcuts[slot].orEmpty()
+                                    val selectedTrack = if (key.startsWith("track:")) tracks.firstOrNull { it.id.toString() == key.removePrefix("track:") } else null
+                                    val selectedPlaylist = if (key.startsWith("playlist:")) savedPlaylists[key.removePrefix("playlist:")] else null
+                                    val shownTrack = selectedTrack ?: selectedPlaylist?.firstOrNull() ?: if (key.isBlank()) tracks.getOrNull(slot) else null
+                                    val cardTitle = when {
+                                        key.startsWith("playlist:") -> key.removePrefix("playlist:")
+                                        shownTrack != null -> shownTrack.title
+                                        else -> "Escolher música"
+                                    }
+                                    val cardSubtitle = when {
+                                        key.startsWith("playlist:") -> "Playlist • ${selectedPlaylist?.size ?: 0} músicas"
+                                        shownTrack != null -> shownTrack.artist
+                                        else -> "Personalizar atalho"
+                                    }
+                                    Row(Modifier.weight(1f).height(64.dp).clip(RoundedCornerShape(4.dp)).background(PanelLight), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(Modifier.size(56.dp).clickable {
+                                            when {
+                                                key.startsWith("playlist:") && !selectedPlaylist.isNullOrEmpty() -> onPlayQueue(selectedPlaylist)
+                                                shownTrack != null -> onPlay(shownTrack)
+                                                else -> editingSlot = slot
+                                            }
+                                        }) {
+                                            Cover(shownTrack?.artworkUri, Modifier.fillMaxSize(), false)
+                                            if (key.startsWith("playlist:")) Icon(Icons.Default.QueueMusic, null, tint = White, modifier = Modifier.align(Alignment.BottomEnd).padding(3.dp).size(17.dp))
+                                        }
+                                        Column(Modifier.weight(1f).clickable {
+                                            when {
+                                                key.startsWith("playlist:") && !selectedPlaylist.isNullOrEmpty() -> onPlayQueue(selectedPlaylist)
+                                                shownTrack != null -> onPlay(shownTrack)
+                                                else -> editingSlot = slot
+                                            }
+                                        }.padding(start = 7.dp, end = 1.dp)) {
+                                            Text(cardTitle, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            Text(cardSubtitle, color = Gray, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                        IconButton(onClick = { editingSlot = slot }, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.Edit, "Escolher conteúdo", tint = Gray, modifier = Modifier.size(16.dp)) }
                                     }
                                 }
-                                if (pair.size == 1) Spacer(Modifier.weight(1f))
                             }
                         }
                     }
@@ -312,6 +371,42 @@ private fun HomeScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -
             item { Text("Tocadas recentemente", color = White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp)) }
             items(tracks.take(20), key = { "home-" + it.id }) { TrackRow(it, { onPlay(it) }, Modifier.padding(horizontal = 16.dp)) }
         }
+    }
+    if (editingSlot >= 0) {
+        AlertDialog(
+            onDismissRequest = { editingSlot = -1 },
+            containerColor = Panel,
+            title = { Text("Personalizar atalho ${editingSlot + 1}", color = White) },
+            text = {
+                Column(Modifier.heightIn(max = 460.dp)) {
+                    Text("Escolha uma música ou playlist para aparecer na tela inicial.", color = Gray, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                    LazyColumn {
+                        item { Text("MÚSICAS", color = Green, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp)) }
+                        items(tracks, key = { "home-pick-${it.id}" }) { track ->
+                            Row(Modifier.fillMaxWidth().clickable { saveShortcut(editingSlot, "track:${track.id}") }.padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Cover(track.artworkUri, Modifier.size(42.dp), false)
+                                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                    Text(track.title, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(track.artist, color = Gray, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                        item { Text("PLAYLISTS", color = Green, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp)) }
+                        items(savedPlaylists.keys.sorted(), key = { "home-playlist-${it}" }) { name ->
+                            Row(Modifier.fillMaxWidth().clickable { saveShortcut(editingSlot, "playlist:$name") }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(42.dp).background(Color(0xFF315C42)), contentAlignment = Alignment.Center) { Icon(Icons.Default.QueueMusic, null, tint = White) }
+                                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                    Text(name, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("${savedPlaylists[name]?.size ?: 0} músicas", color = Gray, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                        item { TextButton(onClick = { saveShortcut(editingSlot, "") }) { Text("Limpar este atalho", color = Color(0xFFFF7777)) } }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { editingSlot = -1 }) { Text("Fechar", color = Green) } }
+        )
     }
 }
 
