@@ -25,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -234,7 +235,14 @@ private fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Brush.verticalGradient(listOf(Color(0xFF3D2929), AppBlack)))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Box(Modifier.size(34.dp).clip(CircleShape).background(Color(0xFF3B6E45)), contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.GraphicEq, null, tint = Color.White)
                 }
@@ -269,7 +277,7 @@ private fun HomeScreen(
         } else {
             if (filter == "Tudo" || filter == "Músicas") {
                 item {
-                    Text("Feito para você", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                    Text("Ouça novamente", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
                 }
                 item {
                     val picks = tracks.take(6)
@@ -293,7 +301,7 @@ private fun HomeScreen(
             }
             if (filter == "Tudo" || filter == "Álbuns") {
                 item {
-                    Text("Seus álbuns", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                    Text("Álbuns e artistas", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
                 }
                 item {
                     val albums = tracks.distinctBy { if (it.album.isBlank()) it.id.toString() else it.album + "|" + it.artist }.take(20)
@@ -309,7 +317,7 @@ private fun HomeScreen(
                 }
             }
             item {
-                Text("Tocadas na sua biblioteca", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                Text("Todas as músicas", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
             }
             items(tracks.take(15), key = { "home-${it.id}" }) { track ->
                 TrackRow(track, onClick = { onPlay(track) })
