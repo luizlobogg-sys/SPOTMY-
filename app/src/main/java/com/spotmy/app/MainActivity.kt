@@ -62,6 +62,10 @@ import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLRequest
+import com.yausername.ffmpeg.FFmpeg
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URLEncoder
@@ -672,9 +676,12 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
 @Composable
 private fun SnapMyScreen(onRefresh: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    var audioUrl by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    var mediaUrl by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
     var downloading by remember { mutableStateOf(false) }
+    var progress by remember { mutableIntStateOf(0) }
+    var mode by remember { mutableStateOf("YouTube") }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -685,74 +692,140 @@ private fun SnapMyScreen(onRefresh: () -> Unit) {
             }
             Column(Modifier.padding(start = 12.dp)) {
                 Text("SNAPMY", color = White, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold)
-                Text("Baixe áudio direto para sua biblioteca", color = Gray, fontSize = 13.sp)
+                Text("Baixador de áudio para o SPOTMY", color = Gray, fontSize = 13.sp)
             }
         }
-        Text("Cole o link direto de um arquivo de áudio hospedado em um site que permita o download. O arquivo será salvo em Música/SPOTMY e poderá aparecer na biblioteca após atualizar.", color = Gray, fontSize = 13.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("YouTube", "Link direto").forEach { option ->
+                FilterChip(selected = mode == option, onClick = { mode = option; status = null },
+                    label = { Text(option) },
+                    leadingIcon = { Icon(if (option == "YouTube") Icons.Default.PlayCircle else Icons.Default.Link, null) })
+            }
+        }
+        Text(
+            if (mode == "YouTube")
+                "Cole o link de um vídeo ou playlist pública do YouTube. O SNAPMY tentará extrair o áudio MP3 e adicioná-lo à biblioteca local. Use apenas conteúdo que você tenha autorização para baixar."
+            else "Cole o link direto de um arquivo de áudio hospedado em um site que permita o download.",
+            color = Gray, fontSize = 13.sp
+        )
         OutlinedTextField(
-            value = audioUrl,
-            onValueChange = { audioUrl = it; status = null },
+            value = mediaUrl, onValueChange = { mediaUrl = it; status = null },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Link direto do arquivo de áudio") },
-            placeholder = { Text("https://site.com/musica.mp3") },
-            singleLine = true,
-            shape = RoundedCornerShape(10.dp),
+            label = { Text(if (mode == "YouTube") "Link do YouTube" else "Link direto do áudio") },
+            placeholder = { Text(if (mode == "YouTube") "https://www.youtube.com/watch?v=..." else "https://site.com/musica.mp3") },
+            singleLine = true, shape = RoundedCornerShape(10.dp),
             leadingIcon = { Icon(Icons.Default.Link, null, tint = Green) },
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = White, unfocusedTextColor = White,
                 focusedBorderColor = Green, unfocusedBorderColor = PanelLight,
-                focusedLabelColor = Green, unfocusedLabelColor = Gray,
-                cursorColor = Green
+                focusedLabelColor = Green, unfocusedLabelColor = Gray, cursorColor = Green
             )
         )
         Button(
             onClick = {
-                val raw = audioUrl.trim()
-                runCatching {
-                    val uri = Uri.parse(raw)
-                    require(uri.scheme == "https" || uri.scheme == "http") { "Informe um link HTTP ou HTTPS válido." }
-                    require(!uri.host.isNullOrBlank()) { "O link não parece válido." }
-                    val pathName = uri.lastPathSegment.orEmpty().substringBefore('?')
-                    val extension = pathName.substringAfterLast('.', "").lowercase()
-                    require(extension in setOf("mp3", "m4a", "aac", "flac", "ogg", "opus", "wav", "aiff", "alac")) {
-                        "Use o link direto de um arquivo de áudio (.mp3, .m4a, .flac, .ogg, .wav etc.), não o endereço de uma playlist ou página."
-                    }
-                    val safeName = pathName.replace(Regex("[^A-Za-z0-9._-]"), "_").take(120).ifBlank { "audio.$extension" }
-                    val request = DownloadManager.Request(uri)
-                        .setTitle(safeName)
-                        .setDescription("SNAPMY • SPOTMY")
-                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                        .setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, "SPOTMY/$safeName")
-                    val manager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as DownloadManager
-                    manager.enqueue(request)
-                    status = "Download iniciado: $safeName. Quando terminar, toque em Atualizar biblioteca."
+                val raw = mediaUrl.trim()
+                val uri = runCatching { Uri.parse(raw) }.getOrNull()
+                if (uri == null || (uri.scheme != "https" && uri.scheme != "http") || uri.host.isNullOrBlank()) {
+                    status = "Cole um endereço HTTP ou HTTPS válido."
+                } else if (mode == "YouTube" && !listOf("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "music.youtube.com").any { host -> uri.host.equals(host, true) || uri.host.endsWith(".$host", true) }) {
+                    status = "Para esta opção, use um link do YouTube. Para outros sites, tente Link direto."
+                } else if (mode == "Link direto") {
+                    runCatching {
+                        val pathName = uri.lastPathSegment.orEmpty().substringBefore('?')
+                        val extension = pathName.substringAfterLast('.', "").lowercase()
+                        require(extension in setOf("mp3", "m4a", "aac", "flac", "ogg", "opus", "wav", "aiff", "alac")) {
+                            "Use o link direto de um arquivo de áudio, não o endereço de uma página ou playlist."
+                        }
+                        val safeName = pathName.replace(Regex("[^A-Za-z0-9._-]"), "_").take(120).ifBlank { "audio.$extension" }
+                        val request = DownloadManager.Request(uri).setTitle(safeName).setDescription("SNAPMY • SPOTMY")
+                            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                            .setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, "SPOTMY/$safeName")
+                        val manager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as DownloadManager
+                        manager.enqueue(request)
+                        status = "Download iniciado: $safeName. Atualize a biblioteca quando terminar."
+                    }.onFailure { status = it.message ?: "Não foi possível iniciar o download." }
+                } else {
                     downloading = true
-                }.onFailure {
-                    status = it.message ?: "Não foi possível iniciar o download."
-                    downloading = false
+                    progress = 0
+                    status = "Preparando o mecanismo de download…"
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            runCatching {
+                                YoutubeDL.getInstance().init(context.applicationContext)
+                                FFmpeg.getInstance().init(context.applicationContext)
+                                val outputDir = File(context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir, "SNAPMY")
+                                if (!outputDir.exists()) outputDir.mkdirs()
+                                val request = YoutubeDLRequest(raw)
+                                request.addOption("--no-mtime")
+                                request.addOption("--yes-playlist")
+                                request.addOption("-x")
+                                request.addOption("--audio-format", "mp3")
+                                request.addOption("--audio-quality", "0")
+                                request.addOption("--embed-metadata")
+                                request.addOption("-o", File(outputDir, "%(title).180B.%(ext)s").absolutePath)
+                                YoutubeDL.getInstance().execute(request) { percent, _ ->
+                                    scope.launch { progress = percent.toInt().coerceIn(0, 100); status = "Baixando áudio… $progress%" }
+                                }
+                                val audioFiles = outputDir.listFiles()?.filter { file ->
+                                    file.isFile && file.extension.lowercase() in setOf("mp3", "m4a", "opus", "ogg", "wav", "flac")
+                                }.orEmpty()
+                                var imported = 0
+                                audioFiles.forEach { file ->
+                                    val values = ContentValues().apply {
+                                        put(MediaStore.Audio.Media.DISPLAY_NAME, file.name)
+                                        put(MediaStore.Audio.Media.TITLE, file.nameWithoutExtension)
+                                        put(MediaStore.Audio.Media.MIME_TYPE, if (file.extension.lowercase() == "mp3") "audio/mpeg" else "audio/" + file.extension.lowercase())
+                                        put(MediaStore.Audio.Media.IS_MUSIC, 1)
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                            put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/SPOTMY")
+                                            put(MediaStore.Audio.Media.IS_PENDING, 1)
+                                        }
+                                    }
+                                    val resolver = context.contentResolver
+                                    val destination = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+                                    if (destination != null) {
+                                        val copied = runCatching {
+                                            resolver.openOutputStream(destination)?.use { out -> FileInputStream(file).use { input -> input.copyTo(out) } }
+                                                ?: error("Não foi possível salvar o áudio.")
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                                resolver.update(destination, ContentValues().apply { put(MediaStore.Audio.Media.IS_PENDING, 0) }, null, null)
+                                            }
+                                            true
+                                        }.getOrDefault(false)
+                                        if (copied) imported++ else resolver.delete(destination, null, null)
+                                    }
+                                }
+                                require(imported > 0) { "O extrator terminou, mas não encontrei áudio novo para importar. Verifique o link e tente novamente." }
+                                "Concluído: $imported arquivo(s) de áudio salvo(s) em Música/SPOTMY."
+                            }
+                        }
+                        result.onSuccess { message -> status = message; progress = 100; onRefresh() }
+                            .onFailure { error -> status = "Falha no download: " + (error.message ?: "erro desconhecido") + ". O YouTube pode ter alterado o formato ou exigir atualização do extrator." }
+                        downloading = false
+                    }
                 }
             },
-            enabled = !downloading,
-            modifier = Modifier.fillMaxWidth(),
+            enabled = !downloading, modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)
         ) {
-            Icon(Icons.Default.FileDownload, null)
+            if (downloading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.Black)
+            else Icon(Icons.Default.FileDownload, null)
             Spacer(Modifier.width(8.dp))
-            Text(if (downloading) "Download iniciado" else "Baixar áudio", fontWeight = FontWeight.Bold)
+            Text(if (downloading) "Baixando… $progress%" else if (mode == "YouTube") "Baixar áudio do YouTube" else "Baixar áudio", fontWeight = FontWeight.Bold)
         }
-        OutlinedButton(onClick = { onRefresh(); downloading = false; status = "Biblioteca atualizada. Se o download ainda estiver em andamento, atualize novamente quando terminar." }, modifier = Modifier.fillMaxWidth()) {
+        if (downloading) LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth(), color = Green)
+        OutlinedButton(onClick = { onRefresh(); status = "Biblioteca atualizada." }, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Default.Refresh, null)
             Spacer(Modifier.width(8.dp))
             Text("Atualizar biblioteca")
         }
         status?.let { message ->
-            Text(message, color = if (message.startsWith("Download iniciado")) Green else Color(0xFFFFC266), fontSize = 13.sp)
+            Text(message, color = if (message.startsWith("Concluído") || message.startsWith("Download iniciado")) Green else Color(0xFFFFC266), fontSize = 13.sp)
         }
         Divider(color = PanelLight)
-        Text("O que o SNAPMY aceita", color = White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        Text("• Links diretos de arquivos de áudio, quando o site permite baixar.\n• Download pelo gerenciador nativo do Android, com notificação de progresso.\n• Arquivos salvos em Música/SPOTMY para você adicionar à biblioteca local.", color = Gray, fontSize = 13.sp)
-        Text("Limite importante", color = White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        Text("Links de playlists do Spotify ou Deezer normalmente apontam para páginas, não para arquivos de áudio. O SNAPMY não remove DRM nem contorna proteções. Para o YouTube, a integração de extração ainda precisa ser adicionada; use downloads apenas de conteúdo que você tenha direito de salvar.", color = Gray, fontSize = 12.sp)
+        Text("SNAPMY", color = White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Text("• Usa yt-dlp e FFmpeg para extrair áudio de links compatíveis.\n• Aceita links individuais e playlists quando o extrator consegue processá-los.\n• Salva os arquivos em Música/SPOTMY e tenta atualizar a biblioteca local.", color = Gray, fontSize = 13.sp)
+        Text("O funcionamento depende das mudanças feitas pelo YouTube e pelos sites. Não baixa conteúdo protegido por DRM nem garante que todos os links funcionarão. Baixe apenas materiais seus, licenciados ou autorizados pelo titular.", color = Gray, fontSize = 12.sp)
     }
 }
 
