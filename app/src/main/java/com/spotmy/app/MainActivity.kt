@@ -639,32 +639,6 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
         while (true) { position = player.currentPosition.coerceAtLeast(0L); duration = player.duration.coerceAtLeast(0L); playing = player.isPlaying; delay(500) }
     }
     LaunchedEffect(showLyrics, title, artist, album, duration) {
-        if (showQueue) {
-            Dialog(onDismissRequest = { showQueue = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-                Column(Modifier.fillMaxSize().background(Black).windowInsetsPadding(WindowInsets.safeDrawing).padding(18.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { showQueue = false }) { Icon(Icons.Default.ArrowBack, "Voltar", tint = White) }
-                        Text("Fila de reprodução", color = White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Text("${player.mediaItemCount} músicas na fila", color = Gray, fontSize = 12.sp, modifier = Modifier.padding(start = 12.dp, bottom = 12.dp))
-                    LazyColumn {
-                        items((0 until player.mediaItemCount).toList(), key = { "queue-$it" }) { index ->
-                            val item = player.getMediaItemAt(index)
-                            val current = index == player.currentMediaItemIndex
-                            Row(Modifier.fillMaxWidth().clickable { player.seekToDefaultPosition(index); player.play(); showQueue = false }.padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                                if (current) Icon(Icons.Default.VolumeUp, "Tocando", tint = Green, modifier = Modifier.size(24.dp))
-                                else Text("${index + 1}", color = Gray, modifier = Modifier.width(24.dp))
-                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                                    Text(item.mediaMetadata.title?.toString() ?: "Faixa sem título", color = if (current) Green else White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(item.mediaMetadata.artist?.toString() ?: "Artista desconhecido", color = Gray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                                if (!current) IconButton(onClick = { player.removeMediaItem(index) }) { Icon(Icons.Default.Close, "Remover da fila", tint = Gray) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
         if (showLyrics) {
             lyricsText = ""
             lyricsStatus = "Buscando letras..."
@@ -716,6 +690,32 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
             }
         }
     }
+        if (showQueue) {
+            Dialog(onDismissRequest = { showQueue = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+                Column(Modifier.fillMaxSize().background(Black).windowInsetsPadding(WindowInsets.safeDrawing).padding(18.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { showQueue = false }) { Icon(Icons.Default.ArrowBack, "Voltar", tint = White) }
+                        Text("Fila de reprodução", color = White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Text("${player.mediaItemCount} músicas na fila", color = Gray, fontSize = 12.sp, modifier = Modifier.padding(start = 12.dp, bottom = 12.dp))
+                    LazyColumn {
+                        items((0 until player.mediaItemCount).toList(), key = { "queue-$it" }) { index ->
+                            val item = player.getMediaItemAt(index)
+                            val current = index == player.currentMediaItemIndex
+                            Row(Modifier.fillMaxWidth().clickable { player.seekToDefaultPosition(index); player.play(); showQueue = false }.padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                if (current) Icon(Icons.Default.VolumeUp, "Tocando", tint = Green, modifier = Modifier.size(24.dp))
+                                else Text("${index + 1}", color = Gray, modifier = Modifier.width(24.dp))
+                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                    Text(item.mediaMetadata.title?.toString() ?: "Faixa sem título", color = if (current) Green else White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(item.mediaMetadata.artist?.toString() ?: "Artista desconhecido", color = Gray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                if (!current) IconButton(onClick = { player.removeMediaItem(index) }) { Icon(Icons.Default.Close, "Remover da fila", tint = Gray) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).background(Brush.verticalGradient(listOf(Color(0xFF3D4540), Color(0xFF202320), Black)))) {
         Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
             Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
