@@ -64,12 +64,12 @@ import java.net.HttpURLConnection
 import java.net.URLEncoder
 import java.net.URL
 
-private val Black = Color(0xFF121212)
-private val Panel = Color(0xFF242424)
-private val PanelLight = Color(0xFF343434)
-private val Gray = Color(0xFFB3B3B3)
-private val Green = Color(0xFF1ED760)
-private val White = Color.White
+private var Black = Color(0xFF121212)
+private var Panel = Color(0xFF242424)
+private var PanelLight = Color(0xFF343434)
+private var Gray = Color(0xFFB3B3B3)
+private var Green = Color(0xFF1ED760)
+private var White = Color.White
 
 private fun typographyFor(font: FontFamily): Typography {
     val base = Typography()
@@ -94,6 +94,9 @@ private fun typographyFor(font: FontFamily): Typography {
 
 
 class MainActivity : ComponentActivity() {
+    private var appearanceVersion by mutableIntStateOf(0)
+    private var lightTheme by mutableStateOf(false)
+    private var accentArgb by mutableLongStateOf(0xFF1ED760L)
     private var controller by mutableStateOf<MediaController?>(null)
     private var customFontFamilies by mutableStateOf<Map<String, FontFamily>>(emptyMap())
     private var selectedFontArea by mutableStateOf("home")
@@ -121,6 +124,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val audioPermission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
+        val appearancePrefs = getSharedPreferences("spotmy_appearance", MODE_PRIVATE)
+        lightTheme = appearancePrefs.getBoolean("light_theme", false)
+        accentArgb = appearancePrefs.getLong("accent_argb", 0xFF1ED760L)
+        applyAppearance()
         permissionGranted = ContextCompat.checkSelfPermission(this, audioPermission) == PackageManager.PERMISSION_GRANTED
         if (permissionGranted) refreshTracks()
         runCatching {
@@ -129,17 +136,29 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             MaterialTheme(
-                colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White),
+                colorScheme = if (lightTheme) lightColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White) else darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White),
                 typography = typographyFor(customFontFamilies["app"] ?: FontFamily.Default)
             ) {
                 SpotmyApp(tracks, permissionGranted, controller, customFontFamilies,
                     { permissionLauncher.launch(audioPermission) }, ::refreshTracks, ::playTrack, ::playTracks, ::queueNext,
+                    { light, accent -> lightTheme = light; accentArgb = accent; getSharedPreferences("spotmy_appearance", MODE_PRIVATE).edit().putBoolean("light_theme", light).putLong("accent_argb", accent).apply(); applyAppearance(); appearanceVersion++ },
                     { area -> selectedFontArea = area; fontPickerLauncher.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream")) })
             }
         }
         val token = SessionToken(this, ComponentName(this, MusicService::class.java))
         controllerFuture = MediaController.Builder(this, token).buildAsync().also { future ->
             future.addListener({ controller = runCatching { future.get() }.getOrNull() }, mainExecutor)
+        }
+    }
+
+    private fun applyAppearance() {
+        Green = Color(accentArgb.toULong())
+        if (lightTheme) {
+            Black = Color(0xFFF5F6F5); Panel = Color(0xFFFFFFFF); PanelLight = Color(0xFFE7E9E7)
+            Gray = Color(0xFF5C625E); White = Color(0xFF171A18)
+        } else {
+            Black = Color(0xFF121212); Panel = Color(0xFF242424); PanelLight = Color(0xFF343434)
+            Gray = Color(0xFFB3B3B3); White = Color.White
         }
     }
 
@@ -185,7 +204,7 @@ private enum class Tab { HOME, SEARCH, LIBRARY, SETTINGS }
 @Composable
 private fun SpotmyApp(
     tracks: List<Track>, hasPermission: Boolean, player: MediaController?, fontFamilies: Map<String, FontFamily>,
-    onPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Track) -> Unit, onPlayQueue: (List<Track>) -> Unit, onQueueNext: (Track) -> Unit, onImportFont: (String) -> Unit
+    onPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Track) -> Unit, onPlayQueue: (List<Track>) -> Unit, onQueueNext: (Track) -> Unit, onAppearanceChange: (Boolean, Long) -> Unit, onImportFont: (String) -> Unit
 ) {
     var tab by remember { mutableStateOf(Tab.HOME) }
     var query by remember { mutableStateOf("") }
@@ -243,11 +262,12 @@ private fun SpotmyApp(
             }
         ) { padding ->
             Box(Modifier.fillMaxSize().background(Black).padding(padding)) {
-                when (tab) {
+                val currentAppearance = appearanceVersion
+        when (tab) {
                     Tab.HOME -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["home"] ?: fontFamilies["app"] ?: FontFamily.Default)) { HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { onPlayQueue(it); expandedPlayer = true }, onQueueNext, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS }) }
                     Tab.SEARCH -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["search"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SearchScreen(query, { query = it }, filtered, hasPermission, onPermission, onQueueNext) { onPlay(it); expandedPlayer = true } }
                     Tab.LIBRARY -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["library"] ?: fontFamilies["app"] ?: FontFamily.Default)) { LibraryScreen(tracks, hasPermission, onPermission, onRefresh, onQueueNext) { onPlay(it); expandedPlayer = true } }
-                    Tab.SETTINGS -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["settings"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SettingsScreen(player, fontFamilies, onImportFont) }
+                    Tab.SETTINGS -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["settings"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SettingsScreen(player, fontFamilies, lightTheme = Black != Color(0xFF121212), accentArgb = accentArgb, onAppearanceChange = onAppearanceChange, onImportFont = onImportFont) }
                 }
             }
         }
@@ -916,13 +936,20 @@ private fun createStoryShareImage(context: android.content.Context, title: Strin
 
 
 @Composable
-private fun SettingsScreen(player: MediaController?, fontFamilies: Map<String, FontFamily>, onImportFont: (String) -> Unit) {
+private fun SettingsScreen(player: MediaController?, fontFamilies: Map<String, FontFamily>, lightTheme: Boolean, accentArgb: Long, onAppearanceChange: (Boolean, Long) -> Unit, onImportFont: (String) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val playbackPrefs = remember { context.getSharedPreferences("spotmy_playback", android.content.Context.MODE_PRIVATE) }
     var crossfadeEnabled by remember { mutableStateOf(playbackPrefs.getBoolean("crossfade_enabled", true)) }
     var crossfadeSeconds by remember { mutableFloatStateOf(playbackPrefs.getInt("crossfade_seconds", 5).coerceIn(2, 12).toFloat()) }
     var shuffle by remember(player) { mutableStateOf(player?.shuffleModeEnabled ?: false) }
     var repeat by remember(player) { mutableIntStateOf(player?.repeatMode ?: androidx.media3.common.Player.REPEAT_MODE_OFF) }
+    var bass by remember { mutableFloatStateOf(playbackPrefs.getInt("bass_level", 0).toFloat()) }
+    var treble by remember { mutableFloatStateOf(playbackPrefs.getInt("treble_level", 0).toFloat()) }
+    var audioProfile by remember { mutableStateOf(playbackPrefs.getString("audio_profile", "custom") ?: "custom") }
+    var timerMinutes by remember { mutableIntStateOf(0) }
+    var stopAtTrackEnd by remember { mutableStateOf(playbackPrefs.getBoolean("stop_on_track_end", false)) }
+    var animationsEnabled by remember { mutableStateOf(context.getSharedPreferences("spotmy_appearance", android.content.Context.MODE_PRIVATE).getBoolean("animations_enabled", true)) }
+    val appearancePrefs = remember { context.getSharedPreferences("spotmy_appearance", android.content.Context.MODE_PRIVATE) }
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     var fontArea by remember { mutableStateOf("app") }
     Column(Modifier.fillMaxSize().background(Black).verticalScroll(rememberScrollState())) {
