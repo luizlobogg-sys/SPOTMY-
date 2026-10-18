@@ -133,7 +133,7 @@ class MainActivity : ComponentActivity() {
                 typography = typographyFor(customFontFamilies["app"] ?: FontFamily.Default)
             ) {
                 SpotmyApp(tracks, permissionGranted, controller, customFontFamilies,
-                    { permissionLauncher.launch(audioPermission) }, ::refreshTracks, ::playTrack, ::playTracks,
+                    { permissionLauncher.launch(audioPermission) }, ::refreshTracks, ::playTrack, ::playTracks, ::queueNext,
                     { area -> selectedFontArea = area; fontPickerLauncher.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream")) })
             }
         }
@@ -149,18 +149,28 @@ class MainActivity : ComponentActivity() {
         playTracks(tracks, tracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
     }
 
+    private fun mediaItemFor(track: Track) = MediaItem.Builder().setUri(track.uri).setMediaMetadata(
+        MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist)
+            .setAlbumTitle(track.album).setArtworkUri(track.artworkUri).build()
+    ).build()
+
     private fun playTracks(queue: List<Track>, startIndex: Int = 0) {
         val player = controller ?: return
         if (queue.isEmpty()) return
-        val items = queue.map { item ->
-            MediaItem.Builder().setUri(item.uri).setMediaMetadata(
-                MediaMetadata.Builder().setTitle(item.title).setArtist(item.artist)
-                    .setAlbumTitle(item.album).setArtworkUri(item.artworkUri).build()
-            ).build()
-        }
-        player.setMediaItems(items, startIndex.coerceIn(0, items.lastIndex), 0L)
+        player.setMediaItems(queue.map(::mediaItemFor), startIndex.coerceIn(0, queue.lastIndex), 0L)
         player.prepare()
         player.play()
+    }
+
+    private fun queueNext(track: Track) {
+        val player = controller ?: return
+        val index = player.currentMediaItemIndex
+        if (player.currentMediaItem == null || index == androidx.media3.common.C.INDEX_UNSET) {
+            playTracks(listOf(track))
+            return
+        }
+        player.addMediaItem((index + 1).coerceAtMost(player.mediaItemCount), mediaItemFor(track))
+        android.widget.Toast.makeText(this, "${track.title} será a próxima música.", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     override fun onDestroy() {
@@ -175,7 +185,7 @@ private enum class Tab { HOME, SEARCH, LIBRARY, SETTINGS }
 @Composable
 private fun SpotmyApp(
     tracks: List<Track>, hasPermission: Boolean, player: MediaController?, fontFamilies: Map<String, FontFamily>,
-    onPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Track) -> Unit, onPlayQueue: (List<Track>) -> Unit, onImportFont: (String) -> Unit
+    onPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Track) -> Unit, onPlayQueue: (List<Track>) -> Unit, onQueueNext: (Track) -> Unit, onImportFont: (String) -> Unit
 ) {
     var tab by remember { mutableStateOf(Tab.HOME) }
     var query by remember { mutableStateOf("") }
@@ -234,9 +244,9 @@ private fun SpotmyApp(
         ) { padding ->
             Box(Modifier.fillMaxSize().background(Black).padding(padding)) {
                 when (tab) {
-                    Tab.HOME -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["home"] ?: fontFamilies["app"] ?: FontFamily.Default)) { HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { onPlayQueue(it); expandedPlayer = true }, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS }) }
-                    Tab.SEARCH -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["search"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SearchScreen(query, { query = it }, filtered, hasPermission, onPermission) { onPlay(it); expandedPlayer = true } }
-                    Tab.LIBRARY -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["library"] ?: fontFamilies["app"] ?: FontFamily.Default)) { LibraryScreen(tracks, hasPermission, onPermission, onRefresh) { onPlay(it); expandedPlayer = true } }
+                    Tab.HOME -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["home"] ?: fontFamilies["app"] ?: FontFamily.Default)) { HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { onPlayQueue(it); expandedPlayer = true }, onQueueNext, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS }) }
+                    Tab.SEARCH -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["search"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SearchScreen(query, { query = it }, filtered, hasPermission, onPermission, onQueueNext) { onPlay(it); expandedPlayer = true } }
+                    Tab.LIBRARY -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["library"] ?: fontFamilies["app"] ?: FontFamily.Default)) { LibraryScreen(tracks, hasPermission, onPermission, onRefresh, onQueueNext) { onPlay(it); expandedPlayer = true } }
                     Tab.SETTINGS -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["settings"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SettingsScreen(player, fontFamilies, onImportFont) }
                 }
             }
@@ -245,7 +255,7 @@ private fun SpotmyApp(
 }
 
 @Composable
-private fun HomeScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -> Unit, onPlay: (Track) -> Unit, onPlayQueue: (List<Track>) -> Unit, onSearch: () -> Unit, onSettings: () -> Unit) {
+private fun HomeScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -> Unit, onPlay: (Track) -> Unit, onPlayQueue: (List<Track>) -> Unit, onQueueNext: (Track) -> Unit, onSearch: () -> Unit, onSettings: () -> Unit) {
     var filter by remember { mutableStateOf("Tudo") }
     val context = androidx.compose.ui.platform.LocalContext.current
     val homePrefs = remember { context.getSharedPreferences("spotmy_home", android.content.Context.MODE_PRIVATE) }
@@ -369,7 +379,7 @@ private fun HomeScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -
                 }
             }
             item { Text("Tocadas recentemente", color = White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp)) }
-            items(tracks.take(20), key = { "home-" + it.id }) { TrackRow(it, { onPlay(it) }, Modifier.padding(horizontal = 16.dp)) }
+            items(tracks.take(20), key = { "home-" + it.id }) { TrackRow(it, { onPlay(it) }, Modifier.padding(horizontal = 16.dp), { onQueueNext(it) }) }
         }
     }
     if (editingSlot >= 0) {
@@ -411,7 +421,7 @@ private fun HomeScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -
 }
 
 @Composable
-private fun SearchScreen(query: String, onQuery: (String) -> Unit, tracks: List<Track>, allowed: Boolean, onPermission: () -> Unit, onPlay: (Track) -> Unit) {
+private fun SearchScreen(query: String, onQuery: (String) -> Unit, tracks: List<Track>, allowed: Boolean, onPermission: () -> Unit, onQueueNext: (Track) -> Unit, onPlay: (Track) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Text("Buscar", color = White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 16.dp))
@@ -427,7 +437,7 @@ private fun SearchScreen(query: String, onQuery: (String) -> Unit, tracks: List<
         if (!allowed) PermissionCard(onPermission, Modifier.padding(horizontal = 16.dp))
         else if (query.isNotBlank()) {
             if (tracks.isEmpty()) Text("Nenhum resultado encontrado", color = Gray, modifier = Modifier.padding(16.dp))
-            else LazyColumn { items(tracks, key = { it.id }) { TrackRow(it, { onPlay(it) }, Modifier.padding(horizontal = 16.dp)) } }
+            else LazyColumn { items(tracks, key = { it.id }) { TrackRow(it, { onPlay(it) }, Modifier.padding(horizontal = 16.dp), { onQueueNext(it) }) } }
         } else {
             Text("Navegar por todas as seções", color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
@@ -450,7 +460,7 @@ private fun SearchScreen(query: String, onQuery: (String) -> Unit, tracks: List<
 }
 
 @Composable
-private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Track) -> Unit) {
+private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -> Unit, onRefresh: () -> Unit, onQueueNext: (Track) -> Unit, onPlay: (Track) -> Unit) {
     var filter by remember { mutableStateOf("Playlists") }
     var alphabetical by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -538,7 +548,7 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
                                 Text(if (filter == "Artistas") "Artista" else "Álbum • " + track.artist, color = Gray, fontSize = 12.sp)
                             }
                         }
-                    } else TrackRow(track, { onPlay(track) }, Modifier.padding(horizontal = 16.dp))
+                    } else TrackRow(track, { onPlay(track) }, Modifier.padding(horizontal = 16.dp), { onQueueNext(track) })
                 }
             }
         }
@@ -612,6 +622,7 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
     var lyricsText by remember { mutableStateOf("") }
     var lyricsStatus by remember { mutableStateOf("Buscando letras...") }
     var showPasteLyrics by remember { mutableStateOf(false) }
+    var showQueue by remember { mutableStateOf(false) }
     var pastedLyrics by remember { mutableStateOf("") }
     val context = androidx.compose.ui.platform.LocalContext.current
     val lyricsPicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -628,6 +639,32 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
         while (true) { position = player.currentPosition.coerceAtLeast(0L); duration = player.duration.coerceAtLeast(0L); playing = player.isPlaying; delay(500) }
     }
     LaunchedEffect(showLyrics, title, artist, album, duration) {
+        if (showQueue) {
+            Dialog(onDismissRequest = { showQueue = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+                Column(Modifier.fillMaxSize().background(Black).windowInsetsPadding(WindowInsets.safeDrawing).padding(18.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { showQueue = false }) { Icon(Icons.Default.ArrowBack, "Voltar", tint = White) }
+                        Text("Fila de reprodução", color = White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Text("${player.mediaItemCount} músicas na fila", color = Gray, fontSize = 12.sp, modifier = Modifier.padding(start = 12.dp, bottom = 12.dp))
+                    LazyColumn {
+                        items((0 until player.mediaItemCount).toList(), key = { "queue-$it" }) { index ->
+                            val item = player.getMediaItemAt(index)
+                            val current = index == player.currentMediaItemIndex
+                            Row(Modifier.fillMaxWidth().clickable { player.seekToDefaultPosition(index); player.play(); showQueue = false }.padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                if (current) Icon(Icons.Default.VolumeUp, "Tocando", tint = Green, modifier = Modifier.size(24.dp))
+                                else Text("${index + 1}", color = Gray, modifier = Modifier.width(24.dp))
+                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                    Text(item.mediaMetadata.title?.toString() ?: "Faixa sem título", color = if (current) Green else White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(item.mediaMetadata.artist?.toString() ?: "Artista desconhecido", color = Gray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                if (!current) IconButton(onClick = { player.removeMediaItem(index) }) { Icon(Icons.Default.Close, "Remover da fila", tint = Gray) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if (showLyrics) {
             lyricsText = ""
             lyricsStatus = "Buscando letras..."
@@ -745,9 +782,7 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
                         android.widget.Toast.makeText(context, "Não foi possível criar o card de compartilhamento.", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }) { Icon(Icons.Default.Share, "Compartilhar card", tint = White) }
-                IconButton(onClick = {
-                    android.widget.Toast.makeText(context, "A fila está disponível pelos controles de próxima música.", android.widget.Toast.LENGTH_SHORT).show()
-                }) { Icon(Icons.Default.QueueMusic, "Fila", tint = Gray) }
+                IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Fila", tint = Gray) }
             }
             Spacer(Modifier.height(20.dp))
         }
@@ -973,7 +1008,8 @@ private fun SettingsScreen(player: MediaController?, fontFamilies: Map<String, F
 }
 
 @Composable
-private fun TrackRow(track: Track, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun TrackRow(track: Track, onClick: () -> Unit, modifier: Modifier = Modifier, onQueue: (() -> Unit)? = null) {
+    var menuExpanded by remember { mutableStateOf(false) }
     Row(modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).clickable(onClick = onClick).padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
         Cover(track.artworkUri, Modifier.size(54.dp), false)
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
@@ -981,7 +1017,13 @@ private fun TrackRow(track: Track, onClick: () -> Unit, modifier: Modifier = Mod
             Text(listOf(track.artist, track.album).filter { it.isNotBlank() }.joinToString(" • "), color = Gray, fontSize = 12.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
         }
-        IconButton(onClick = onClick) { Icon(Icons.Default.MoreHoriz, "Mais opções", tint = Gray) }
+        Box {
+            IconButton(onClick = { if (onQueue != null) menuExpanded = true else onClick() }) { Icon(Icons.Default.MoreHoriz, "Mais opções", tint = Gray) }
+            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                DropdownMenuItem(text = { Text("Tocar em seguida") }, leadingIcon = { Icon(Icons.Default.QueueMusic, null) }, onClick = { menuExpanded = false; onQueue?.invoke() })
+                DropdownMenuItem(text = { Text("Reproduzir agora") }, leadingIcon = { Icon(Icons.Default.PlayArrow, null) }, onClick = { menuExpanded = false; onClick() })
+            }
+        }
     }
 }
 
