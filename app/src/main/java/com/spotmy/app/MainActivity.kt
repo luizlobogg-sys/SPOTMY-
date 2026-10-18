@@ -3,6 +3,7 @@ package com.spotmy.app
 import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
+import android.graphics.Typeface
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,6 +61,20 @@ private val White = Color.White
 
 class MainActivity : ComponentActivity() {
     private var controller by mutableStateOf<MediaController?>(null)
+    private var customFontFamily by mutableStateOf<FontFamily?>(null)
+    private val fontPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                contentResolver.openInputStream(uri)?.use { input ->
+                    openFileOutput("spotmy_custom_font", MODE_PRIVATE).use { output -> input.copyTo(output) }
+                } ?: error("Não foi possível ler o arquivo")
+                customFontFamily = FontFamily(Typeface.createFromFile(java.io.File(filesDir, "spotmy_custom_font")))
+                android.widget.Toast.makeText(this, "Fonte importada e aplicada.", android.widget.Toast.LENGTH_LONG).show()
+            }.onFailure {
+                android.widget.Toast.makeText(this, "Não foi possível importar essa fonte. Use um arquivo TTF ou OTF.", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     private var tracks by mutableStateOf<List<Track>>(emptyList())
     private var permissionGranted by mutableStateOf(false)
     private var controllerFuture: ListenableFuture<MediaController>? = null
@@ -72,10 +88,18 @@ class MainActivity : ComponentActivity() {
         val audioPermission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
         permissionGranted = ContextCompat.checkSelfPermission(this, audioPermission) == PackageManager.PERMISSION_GRANTED
         if (permissionGranted) refreshTracks()
+        runCatching {
+            val fontFile = java.io.File(filesDir, "spotmy_custom_font")
+            if (fontFile.exists()) customFontFamily = FontFamily(Typeface.createFromFile(fontFile))
+        }
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White)) {
+            MaterialTheme(
+                colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White),
+                typography = Typography(defaultFontFamily = customFontFamily ?: FontFamily.Default)
+            ) {
                 SpotmyApp(tracks, permissionGranted, controller,
-                    { permissionLauncher.launch(audioPermission) }, ::refreshTracks, ::playTrack)
+                    { permissionLauncher.launch(audioPermission) }, ::refreshTracks, ::playTrack,
+                    { fontPickerLauncher.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream")) })
             }
         }
         val token = SessionToken(this, ComponentName(this, MusicService::class.java))
@@ -111,7 +135,7 @@ private enum class Tab { HOME, SEARCH, LIBRARY, SETTINGS }
 @Composable
 private fun SpotmyApp(
     tracks: List<Track>, hasPermission: Boolean, player: MediaController?,
-    onPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Track) -> Unit
+    onPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Track) -> Unit, onImportFont: () -> Unit
 ) {
     var tab by remember { mutableStateOf(Tab.HOME) }
     var query by remember { mutableStateOf("") }
@@ -173,7 +197,7 @@ private fun SpotmyApp(
                     Tab.HOME -> HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS })
                     Tab.SEARCH -> SearchScreen(query, { query = it }, filtered, hasPermission, onPermission) { onPlay(it); expandedPlayer = true }
                     Tab.LIBRARY -> LibraryScreen(tracks, hasPermission, onPermission, onRefresh) { onPlay(it); expandedPlayer = true }
-                    Tab.SETTINGS -> SettingsScreen(player)
+                    Tab.SETTINGS -> SettingsScreen(player, onImportFont)
                 }
             }
         }
@@ -598,7 +622,7 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
 
 
 @Composable
-private fun SettingsScreen(player: MediaController?) {
+private fun SettingsScreen(player: MediaController?, onImportFont: () -> Unit) {
     var shuffle by remember(player) { mutableStateOf(player?.shuffleModeEnabled ?: false) }
     var repeat by remember(player) { mutableIntStateOf(player?.repeatMode ?: androidx.media3.common.Player.REPEAT_MODE_OFF) }
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
@@ -632,6 +656,16 @@ private fun SettingsScreen(player: MediaController?) {
             Icon(Icons.Default.Lyrics, null, tint = White)
             Column(Modifier.weight(1f).padding(start = 16.dp)) { Text("Encontrar letras", color = White); Text("Pesquisar letras na internet", color = Gray, fontSize = 12.sp) }
             Icon(Icons.Default.OpenInNew, null, tint = Gray)
+        }
+        Divider(color = PanelLight, modifier = Modifier.padding(vertical = 8.dp))
+        Text("APARÊNCIA", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        Row(Modifier.fillMaxWidth().clickable(onClick = onImportFont).padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.TextFields, null, tint = White)
+            Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                Text("Importar fonte", color = White)
+                Text("TTF ou OTF • fica salva dentro do SPOTMY", color = Gray, fontSize = 12.sp)
+            }
+            Icon(Icons.Default.FileOpen, null, tint = Gray)
         }
         Divider(color = PanelLight, modifier = Modifier.padding(vertical = 8.dp))
         Text("SPOTMY 2.5.1.0", color = White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
