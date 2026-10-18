@@ -575,11 +575,11 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
                 val baseName = fileName ?: "SOUNDIZZ importada"
                 var playlistName = baseName
                 var suffix = 2
-                while (playlistName in playlists) { playlistName = "$"+"{baseName} ($"+"{suffix})"; suffix++ }
+                while (playlistName in playlists) { playlistName = baseName + " (" + suffix + ")"; suffix++ }
                 persistPlaylists(playlists + (playlistName to matched.map { it.id }.toSet()))
                 val missing = (imported.size - matched.size).coerceAtLeast(0)
-                soundizzImportMessage = "Playlist ‘$"+"{playlistName}’ criada com $"+"{matched.size} músicas locais. " +
-                    if (missing > 0) "$"+"{missing} faixas não foram encontradas no aparelho. O Soundiiz transfere os dados da playlist, não baixa os arquivos de áudio." else "Todas as faixas foram encontradas na biblioteca local."
+                soundizzImportMessage = "Playlist ‘" + playlistName + "’ criada com " + matched.size + " músicas locais. " +
+                    if (missing > 0) missing.toString() + " faixas não foram encontradas no aparelho. O Soundiiz transfere os dados da playlist, não baixa os arquivos de áudio." else "Todas as faixas foram encontradas na biblioteca local."
             }.onFailure { soundizzImportMessage = it.message ?: "Não foi possível importar esse arquivo." }
         }
     }
