@@ -140,6 +140,8 @@ private fun SpotmyApp(
         onDispose { player?.removeListener(listener) }
     }
 
+    androidx.activity.compose.BackHandler(enabled = expandedPlayer) { expandedPlayer = false }
+
     if (expandedPlayer && player != null && player.currentMediaItem != null) {
         NowPlaying(title, artist, album, artwork, player) { expandedPlayer = false }
     } else {
@@ -399,8 +401,8 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
             }
         }
     }
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF3D4540), Color(0xFF202320), Black)))) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
+    Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).background(Brush.verticalGradient(listOf(Color(0xFF3D4540), Color(0xFF202320), Black)))) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
             Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Minimizar", tint = White, modifier = Modifier.size(30.dp)) }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -409,9 +411,11 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
                 }
                 IconButton(onClick = { showLyrics = true }) { Icon(Icons.Default.Lyrics, "Ver letra", tint = White) }
             }
-            Spacer(Modifier.weight(0.6f))
-            Cover(artwork, Modifier.fillMaxWidth().aspectRatio(1f), false)
-            Spacer(Modifier.weight(0.6f))
+            Spacer(Modifier.height(12.dp))
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Cover(artwork, Modifier.fillMaxWidth().aspectRatio(1f).heightIn(max = 360.dp), false)
+            }
+            Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(title, color = White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
