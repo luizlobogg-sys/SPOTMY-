@@ -2,6 +2,7 @@ package com.spotmy.app
 
 import android.os.Handler
 import android.os.Looper
+import android.media.audiofx.Equalizer
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
@@ -21,11 +22,28 @@ class MusicService : MediaSessionService() {
     private var fadeTarget: ExoPlayer? = null
     private var fadeTargetIndex = C.INDEX_UNSET
     private var lastItemIndex = C.INDEX_UNSET
+    private var equalizer: Equalizer? = null
+    private var lastBass = Int.MIN_VALUE
+    private var lastTreble = Int.MIN_VALUE
+    private var lastProfile = ""
 
     private val crossfadeTick = object : Runnable {
         override fun run() {
             val source = activePlayer ?: return
             val prefs = getSharedPreferences("spotmy_playback", MODE_PRIVATE)
+            applyAudioProfile(source, prefs)
+            val stopAt = prefs.getLong("sleep_timer_end", 0L)
+            if (stopAt > 0L && System.currentTimeMillis() >= stopAt) {
+                source.pause()
+                source.seekTo(0L)
+                prefs.edit().remove("sleep_timer_end").putBoolean("stop_on_track_end", false).apply()
+                cancelFade()
+            }
+            if (prefs.getBoolean("stop_on_track_end", false) && source.playbackState == Player.STATE_ENDED) {
+                source.pause()
+                source.seekTo(0L)
+                prefs.edit().putBoolean("stop_on_track_end", false).apply()
+            }
             val enabled = prefs.getBoolean("crossfade_enabled", true)
             val configuredMs = prefs.getInt("crossfade_seconds", 5).coerceIn(2, 12) * 1000L
             if (!enabled || !source.isPlaying || source.repeatMode == Player.REPEAT_MODE_ONE ||
@@ -81,6 +99,29 @@ class MusicService : MediaSessionService() {
         activePlayer = createPlayer()
         mediaSession = MediaSession.Builder(this, activePlayer!!).build()
         handler.post(crossfadeTick)
+    }
+
+    private fun applyAudioProfile(player: ExoPlayer, prefs: android.content.SharedPreferences) {
+        val profile = prefs.getString("audio_profile", "custom") ?: "custom"
+        val bass = when (profile) { "bass" -> 75; "vocal" -> 15; "treble" -> -20; else -> prefs.getInt("bass_level", 0) }.coerceIn(-100, 100)
+        val treble = when (profile) { "bass" -> -10; "vocal" -> 25; "treble" -> 75; else -> prefs.getInt("treble_level", 0) }.coerceIn(-100, 100)
+        if (lastBass == bass && lastTreble == treble && lastProfile == profile && equalizer != null) return
+        runCatching { equalizer?.release() }
+        equalizer = runCatching {
+            Equalizer(0, player.audioSessionId).apply {
+                enabled = true
+                val range = bandLevelRange
+                for (band in 0 until numberOfBands) {
+                    val frequency = getCenterFreq(band.toShort()).toInt()
+                    val adjustment = if (frequency < 250) bass else if (frequency > 4000) treble else (bass + treble) / 4
+                    val level = (adjustment * range[1] / 100).coerceIn(range[0].toInt(), range[1].toInt())
+                    setBandLevel(band.toShort(), level.toShort())
+                }
+            }
+        }.getOrNull()
+        lastBass = bass
+        lastTreble = treble
+        lastProfile = profile
     }
 
     private fun createPlayer(handleAudioFocus: Boolean = true) = ExoPlayer.Builder(this).build().apply {
@@ -157,6 +198,8 @@ class MusicService : MediaSessionService() {
         handler.removeCallbacks(crossfadeTick)
         incomingPlayer?.release()
         incomingPlayer = null
+        runCatching { equalizer?.release() }
+        equalizer = null
         mediaSession?.release()
         mediaSession = null
         activePlayer?.release()
