@@ -806,6 +806,10 @@ private fun SnapMyScreen(onRefresh: () -> Unit) {
                                 request.addOption("--ignore-errors")
                                 request.addOption("--extractor-retries", "3")
                                 request.addOption("--retry-sleep", "1:3:8")
+                                // Reduz a frequência das requisições para diminuir a chance de limite 429.
+                                request.addOption("--sleep-requests", "2")
+                                request.addOption("--sleep-interval", "5")
+                                request.addOption("--max-sleep-interval", "10")
                                 request.addOption("--yes-playlist")
                                 request.addOption("-x")
                                 request.addOption("--audio-format", "mp3")
