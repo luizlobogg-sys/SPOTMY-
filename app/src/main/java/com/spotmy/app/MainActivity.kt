@@ -68,11 +68,11 @@ class MainActivity : ComponentActivity() {
     private val fontPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
-                contentResolver.openInputStream(uri)?.use { input ->
-                    openFileOutput("spotmy_custom_font", MODE_PRIVATE).use { output -> input.copyTo(output) }
-                } ?: error("Não foi possível ler o arquivo")
-                customFontFamily = FontFamily(Typeface.createFromFile(java.io.File(filesDir, "spotmy_custom_font")))
-                android.widget.Toast.makeText(this, "Fonte importada e aplicada.", android.widget.Toast.LENGTH_LONG).show()
+                contentResolver.openInputStream(uri)?.use { input -> openFileOutput("spotmy_font_$selectedFontArea", MODE_PRIVATE).use { output -> input.copyTo(output) } }
+                    ?: error("Não foi possível ler o arquivo")
+                val family = FontFamily(Typeface.createFromFile(java.io.File(filesDir, "spotmy_font_$selectedFontArea")))
+                customFontFamilies = customFontFamilies + (selectedFontArea to family)
+                android.widget.Toast.makeText(this, "Fonte aplicada à área selecionada.", android.widget.Toast.LENGTH_LONG).show()
             }.onFailure {
                 android.widget.Toast.makeText(this, "Não foi possível importar essa fonte. Use um arquivo TTF ou OTF.", android.widget.Toast.LENGTH_LONG).show()
             }
