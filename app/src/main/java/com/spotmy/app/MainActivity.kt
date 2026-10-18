@@ -180,7 +180,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyAppearance() {
-        Green = Color(accentArgb.toULong())
+        Green = Color(accentArgb.toInt())
         if (lightTheme) {
             Black = Color(0xFFF5F6F5); Panel = Color(0xFFFFFFFF); PanelLight = Color(0xFFE7E9E7)
             Gray = Color(0xFF5C625E); White = Color(0xFF171A18)
@@ -1181,7 +1181,7 @@ private fun SettingsScreen(player: MediaController?, fontFamilies: Map<String, F
         Text("Cor de destaque", color = White, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             listOf(0xFF1ED760L, 0xFF5B9DFFL, 0xFFFF6B6BL, 0xFFB084F5L, 0xFFFFB547L).forEach { colorValue ->
-                Box(Modifier.size(34.dp).clip(CircleShape).background(Color(colorValue.toULong())).clickable { onAppearanceChange(lightTheme, colorValue) },
+                Box(Modifier.size(34.dp).clip(CircleShape).background(Color(colorValue.toInt())).clickable { onAppearanceChange(lightTheme, colorValue) },
                     contentAlignment = Alignment.Center) {
                     if (accentArgb == colorValue) Icon(Icons.Default.Check, null, tint = Color.Black, modifier = Modifier.size(20.dp))
                 }
