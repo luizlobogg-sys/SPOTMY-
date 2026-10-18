@@ -19,6 +19,7 @@ class MusicService : MediaSessionService() {
     private var fadeDurationMs = 0L
     private var fadeSource: ExoPlayer? = null
     private var fadeTarget: ExoPlayer? = null
+    private var fadeTargetIndex = C.INDEX_UNSET
     private var lastItemIndex = C.INDEX_UNSET
 
     private val crossfadeTick = object : Runnable {
@@ -35,7 +36,20 @@ class MusicService : MediaSessionService() {
             }
 
             val index = source.currentMediaItemIndex
-            if (index != lastItemIndex && fadeTarget != null) cancelFade()
+            if (index != lastItemIndex && fadeTarget != null) {
+                val target = fadeTarget
+                val origin = fadeSource
+                // The source may reach its natural end a fraction before the wall-clock
+                // fade ramp reaches 100%. Promote the already-playing incoming player
+                // instead of cancelling it and restarting the next track at position 0.
+                if (target != null && origin === source && index == fadeTargetIndex) {
+                    finishFade(source, target)
+                    handler.postDelayed(this, 100L)
+                    return
+                } else {
+                    cancelFade()
+                }
+            }
             lastItemIndex = index
 
             if (fadeTarget == null) {
@@ -94,6 +108,7 @@ class MusicService : MediaSessionService() {
         incomingPlayer = target
         fadeSource = source
         fadeTarget = target
+        fadeTargetIndex = nextIndex
         fadeStartedAt = System.currentTimeMillis()
         fadeDurationMs = durationMs
     }
@@ -116,6 +131,7 @@ class MusicService : MediaSessionService() {
         incomingPlayer = null
         fadeSource = null
         fadeTarget = null
+        fadeTargetIndex = C.INDEX_UNSET
         lastItemIndex = target.currentMediaItemIndex
         source.release()
     }
@@ -130,6 +146,7 @@ class MusicService : MediaSessionService() {
         incomingPlayer = null
         fadeSource = null
         fadeTarget = null
+        fadeTargetIndex = C.INDEX_UNSET
         fadeStartedAt = 0L
         fadeDurationMs = 0L
     }
