@@ -999,7 +999,7 @@ private fun createStoryShareImage(context: android.content.Context, title: Strin
 @Composable
 private fun CapsuleScreen() {
     val context = androidx.compose.ui.platform.LocalContext.current
-    var snapshot by remember { mutableStateOf<Map<String, Any>>(emptyMap()) }
+    var snapshot by remember { mutableStateOf<Map<String, Any?>>(emptyMap()) }
     LaunchedEffect(Unit) {
         while (true) {
             snapshot = context.getSharedPreferences("spotmy_capsule", android.content.Context.MODE_PRIVATE).all
