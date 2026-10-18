@@ -61,6 +61,28 @@ private val Gray = Color(0xFFB3B3B3)
 private val Green = Color(0xFF1ED760)
 private val White = Color.White
 
+private fun typographyFor(font: FontFamily): Typography {
+    val base = Typography()
+    return Typography(
+        displayLarge = base.displayLarge.copy(fontFamily = font),
+        displayMedium = base.displayMedium.copy(fontFamily = font),
+        displaySmall = base.displaySmall.copy(fontFamily = font),
+        headlineLarge = base.headlineLarge.copy(fontFamily = font),
+        headlineMedium = base.headlineMedium.copy(fontFamily = font),
+        headlineSmall = base.headlineSmall.copy(fontFamily = font),
+        titleLarge = base.titleLarge.copy(fontFamily = font),
+        titleMedium = base.titleMedium.copy(fontFamily = font),
+        titleSmall = base.titleSmall.copy(fontFamily = font),
+        bodyLarge = base.bodyLarge.copy(fontFamily = font),
+        bodyMedium = base.bodyMedium.copy(fontFamily = font),
+        bodySmall = base.bodySmall.copy(fontFamily = font),
+        labelLarge = base.labelLarge.copy(fontFamily = font),
+        labelMedium = base.labelMedium.copy(fontFamily = font),
+        labelSmall = base.labelSmall.copy(fontFamily = font)
+    )
+}
+
+
 class MainActivity : ComponentActivity() {
     private var controller by mutableStateOf<MediaController?>(null)
     private var customFontFamilies by mutableStateOf<Map<String, FontFamily>>(emptyMap())
@@ -137,8 +159,8 @@ private enum class Tab { HOME, SEARCH, LIBRARY, SETTINGS }
 
 @Composable
 private fun SpotmyApp(
-    tracks: List<Track>, hasPermission: Boolean, player: MediaController?,
-    onPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Track) -> Unit, fontFamilies: Map<String, FontFamily>, onImportFont: (String) -> Unit
+    tracks: List<Track>, hasPermission: Boolean, player: MediaController?, fontFamilies: Map<String, FontFamily>,
+    onPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Track) -> Unit, onImportFont: (String) -> Unit
 ) {
     var tab by remember { mutableStateOf(Tab.HOME) }
     var query by remember { mutableStateOf("") }
@@ -171,7 +193,7 @@ private fun SpotmyApp(
     androidx.activity.compose.BackHandler(enabled = expandedPlayer) { expandedPlayer = false }
 
     if (expandedPlayer && player != null && player.currentMediaItem != null) {
-        MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = Typography(defaultFontFamily = fontFamilies["player"] ?: FontFamily.Default)) { NowPlaying(title, artist, album, artwork, player, fontFamilies["lyrics"]) { expandedPlayer = false } }
+        MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["player"] ?: FontFamily.Default)) { NowPlaying(title, artist, album, artwork, player, fontFamilies["lyrics"]) { expandedPlayer = false } }
     } else {
         Scaffold(
             containerColor = Black,
@@ -197,10 +219,10 @@ private fun SpotmyApp(
         ) { padding ->
             Box(Modifier.fillMaxSize().background(Black).padding(padding)) {
                 when (tab) {
-                    Tab.HOME -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = Typography(defaultFontFamily = fontFamilies["home"] ?: FontFamily.Default)) { HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS }) }
-                    Tab.SEARCH -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = Typography(defaultFontFamily = fontFamilies["search"] ?: FontFamily.Default)) { SearchScreen(query, { query = it }, filtered, hasPermission, onPermission) { onPlay(it); expandedPlayer = true } }
-                    Tab.LIBRARY -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = Typography(defaultFontFamily = fontFamilies["library"] ?: FontFamily.Default)) { LibraryScreen(tracks, hasPermission, onPermission, onRefresh) { onPlay(it); expandedPlayer = true } }
-                    Tab.SETTINGS -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = Typography(defaultFontFamily = fontFamilies["settings"] ?: FontFamily.Default)) { SettingsScreen(player, fontFamilies, onImportFont) }
+                    Tab.HOME -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["home"] ?: FontFamily.Default)) { HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS }) }
+                    Tab.SEARCH -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["search"] ?: FontFamily.Default)) { SearchScreen(query, { query = it }, filtered, hasPermission, onPermission) { onPlay(it); expandedPlayer = true } }
+                    Tab.LIBRARY -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["library"] ?: FontFamily.Default)) { LibraryScreen(tracks, hasPermission, onPermission, onRefresh) { onPlay(it); expandedPlayer = true } }
+                    Tab.SETTINGS -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["settings"] ?: FontFamily.Default)) { SettingsScreen(player, fontFamilies, onImportFont) }
                 }
             }
         }
@@ -598,7 +620,7 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
 
         if (showLyrics) {
             Dialog(onDismissRequest = { showLyrics = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-                MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = Typography(defaultFontFamily = lyricsFont ?: FontFamily.Default)) {
+                MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(lyricsFont ?: FontFamily.Default)) {
                     Column(Modifier.fillMaxSize().background(Black).windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 22.dp)) {
                         Row(Modifier.fillMaxWidth().height(60.dp), verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { showLyrics = false }) { Icon(Icons.Default.ArrowBack, "Voltar", tint = White) }
