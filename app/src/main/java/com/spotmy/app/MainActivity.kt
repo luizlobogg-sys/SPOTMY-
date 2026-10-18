@@ -42,6 +42,12 @@ import androidx.media3.session.SessionToken
 import coil.compose.AsyncImage
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URLEncoder
+import java.net.URL
 
 private val Black = Color(0xFF121212)
 private val Panel = Color(0xFF242424)
@@ -347,6 +353,10 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
     var position by remember(player) { mutableLongStateOf(player.currentPosition.coerceAtLeast(0L)) }
     var duration by remember(player) { mutableLongStateOf(player.duration.coerceAtLeast(0L)) }
     var liked by remember { mutableStateOf(false) }
+    var showLyrics by remember { mutableStateOf(false) }
+    var lyricsText by remember { mutableStateOf("") }
+    var lyricsStatus by remember { mutableStateOf("Buscando letras...") }
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     DisposableEffect(player) {
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
@@ -357,6 +367,38 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
     LaunchedEffect(player) {
         while (true) { position = player.currentPosition.coerceAtLeast(0L); duration = player.duration.coerceAtLeast(0L); playing = player.isPlaying; delay(500) }
     }
+    LaunchedEffect(showLyrics, title, artist, album, duration) {
+        if (showLyrics) {
+            lyricsText = ""
+            lyricsStatus = "Buscando letras..."
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val query = "track_name=" + URLEncoder.encode(title, "UTF-8") +
+                        "&artist_name=" + URLEncoder.encode(artist, "UTF-8") +
+                        (if (album.isNotBlank()) "&album_name=" + URLEncoder.encode(album, "UTF-8") else "") +
+                        (if (duration > 0L) "&duration=" + (duration / 1000L).coerceAtLeast(1L) else "")
+                    val connection = (URL("https://lrclib.net/api/get?$query").openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                        setRequestProperty("Lrclib-Client", "SPOTMY/2.6 (https://github.com/luizlobogg-sys/SPOTMY-)")
+                    }
+                    try {
+                        if (connection.responseCode !in 200..299) null
+                        else JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                    } finally { connection.disconnect() }
+                }.getOrNull()
+            }
+            val lyrics = result?.optString("syncedLyrics").orEmpty().ifBlank { result?.optString("plainLyrics").orEmpty() }
+            if (lyrics.isNotBlank() && lyrics != "null") {
+                lyricsText = lyrics.replace(Regex("\\[(\\d{2}:\\d{2}(?:\\.\\d{1,3})?)\\]"), "")
+                    .replace(Regex("\\n{3,}"), "\\n\\n").trim()
+                lyricsStatus = "Fonte: LRCLIB • letras disponibilizadas pelo serviço comunitário"
+            } else {
+                lyricsStatus = "Letra não encontrada para esta gravação. Tente pesquisar pelo título e artista."
+            }
+        }
+    }
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF3D4540), Color(0xFF202320), Black)))) {
         Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
             Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -365,7 +407,7 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
                     Text("TOCANDO AGORA", color = White, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
                     Text(album.ifBlank { "Músicas locais" }, color = Gray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                IconButton(onClick = {}) { Icon(Icons.Default.MoreHoriz, "Mais opções", tint = White) }
+                IconButton(onClick = { showLyrics = true }) { Icon(Icons.Default.Lyrics, "Ver letra", tint = White) }
             }
             Spacer(Modifier.weight(0.6f))
             Cover(artwork, Modifier.fillMaxWidth().aspectRatio(1f), false)
@@ -390,13 +432,17 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
             }
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                IconButton(onClick = {}) { Icon(Icons.Default.Shuffle, "Aleatório", tint = Gray) }
+                IconButton(onClick = { player.shuffleModeEnabled = !player.shuffleModeEnabled }) { Icon(Icons.Default.Shuffle, "Aleatório", tint = if (player.shuffleModeEnabled) Green else Gray) }
                 IconButton(onClick = { player.seekToPreviousMediaItem() }) { Icon(Icons.Default.SkipPrevious, "Anterior", tint = White, modifier = Modifier.size(35.dp)) }
                 Box(Modifier.size(62.dp).clip(CircleShape).background(White).clickable { if (player.isPlaying) player.pause() else player.play() }, contentAlignment = Alignment.Center) {
                     Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, "Reproduzir", tint = Color.Black, modifier = Modifier.size(38.dp))
                 }
                 IconButton(onClick = { player.seekToNextMediaItem() }) { Icon(Icons.Default.SkipNext, "Próxima", tint = White, modifier = Modifier.size(35.dp)) }
-                IconButton(onClick = {}) { Icon(Icons.Default.Repeat, "Repetir", tint = Gray) }
+                IconButton(onClick = { player.repeatMode = when (player.repeatMode) {
+                    androidx.media3.common.Player.REPEAT_MODE_OFF -> androidx.media3.common.Player.REPEAT_MODE_ALL
+                    androidx.media3.common.Player.REPEAT_MODE_ALL -> androidx.media3.common.Player.REPEAT_MODE_ONE
+                    else -> androidx.media3.common.Player.REPEAT_MODE_OFF
+                } }) { Icon(Icons.Default.Repeat, "Repetir", tint = if (player.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) Gray else Green) }
             }
             Spacer(Modifier.height(22.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -405,6 +451,34 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
                 Icon(Icons.Default.QueueMusic, "Fila", tint = Gray)
             }
             Spacer(Modifier.height(20.dp))
+        }
+
+        if (showLyrics) {
+            AlertDialog(
+                onDismissRequest = { showLyrics = false },
+                containerColor = Color(0xFF202020),
+                title = { Text("Letra da música", color = White, fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(Modifier.heightIn(max = 430.dp)) {
+                        Text(lyricsStatus, color = Gray, fontSize = 11.sp)
+                        Spacer(Modifier.height(12.dp))
+                        if (lyricsText.isBlank()) {
+                            CircularProgressIndicator(color = Green, modifier = Modifier.size(28.dp))
+                        } else {
+                            androidx.compose.foundation.lazy.LazyColumn {
+                                item { Text(lyricsText, color = White, fontSize = 16.sp, lineHeight = 25.sp) }
+                            }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showLyrics = false }) { Text("Fechar", color = Green) } },
+                dismissButton = {
+                    TextButton(onClick = {
+                        val encoded = URLEncoder.encode("$title $artist letra", "UTF-8")
+                        uriHandler.openUri("https://www.google.com/search?q=$encoded")
+                    }) { Text("Pesquisar na web", color = White) }
+                }
+            )
         }
     }
 }
