@@ -4,6 +4,15 @@ import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Typeface
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.LinearGradient
+import android.graphics.Shader
+import android.graphics.Color as AndroidColor
+import androidx.core.content.FileProvider
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -506,6 +515,8 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
     var showLyrics by remember { mutableStateOf(false) }
     var lyricsText by remember { mutableStateOf("") }
     var lyricsStatus by remember { mutableStateOf("Buscando letras...") }
+    var showPasteLyrics by remember { mutableStateOf(false) }
+    var pastedLyrics by remember { mutableStateOf("") }
     val context = androidx.compose.ui.platform.LocalContext.current
     val lyricsPicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) runCatching { context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: error("Arquivo vazio") }.onSuccess { imported -> lyricsText = imported.replace(Regex("\\[(\\d{1,2}:\\d{2}(?:\\.\\d{1,3})?)\\]"), "").trim(); lyricsStatus = "Letra importada do aparelho • sem sincronização"; context.getSharedPreferences("spotmy_lyrics", android.content.Context.MODE_PRIVATE).edit().putString(title + "|" + artist, imported).apply() }.onFailure { android.widget.Toast.makeText(context, "Não foi possível abrir a letra.", android.widget.Toast.LENGTH_SHORT).show() }
@@ -525,7 +536,7 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
             lyricsText = ""
             lyricsStatus = "Buscando letras..."
             val result = withContext(Dispatchers.IO) {
-                runCatching {
+                val exact = runCatching {
                     val query = "track_name=" + URLEncoder.encode(title, "UTF-8") +
                         "&artist_name=" + URLEncoder.encode(artist, "UTF-8") +
                         (if (album.isNotBlank()) "&album_name=" + URLEncoder.encode(album, "UTF-8") else "") +
@@ -537,9 +548,29 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
                         setRequestProperty("Lrclib-Client", "SPOTMY/2.6 (https://github.com/luizlobogg-sys/SPOTMY-)")
                     }
                     try {
-                        if (connection.responseCode !in 200..299) null
-                        else JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                        if (connection.responseCode in 200..299) JSONObject(connection.inputStream.bufferedReader().use { it.readText() }) else null
                     } finally { connection.disconnect() }
+                }.getOrNull()
+                if (exact != null) exact else runCatching {
+                    val searchQuery = "track_name=" + URLEncoder.encode(title, "UTF-8") +
+                        "&artist_name=" + URLEncoder.encode(artist, "UTF-8")
+                    val searchConnection = (URL("https://lrclib.net/api/search?$searchQuery").openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                        setRequestProperty("Lrclib-Client", "SPOTMY/2.6 (https://github.com/luizlobogg-sys/SPOTMY-)")
+                    }
+                    try {
+                        if (searchConnection.responseCode !in 200..299) null else {
+                            val matches = org.json.JSONArray(searchConnection.inputStream.bufferedReader().use { it.readText() })
+                            val candidates = (0 until matches.length()).mapNotNull { matches.optJSONObject(it) }
+                                .filter { it.optString("plainLyrics").isNotBlank() || it.optString("syncedLyrics").isNotBlank() }
+                            candidates.minByOrNull { candidate ->
+                                val candidateDuration = candidate.optLong("duration", 0L) * 1000L
+                                if (duration > 0L && candidateDuration > 0L) kotlin.math.abs(candidateDuration - duration) else 0L
+                            }
+                        }
+                    } finally { searchConnection.disconnect() }
                 }.getOrNull()
             }
             val localLyrics = context.getSharedPreferences("spotmy_lyrics", android.content.Context.MODE_PRIVATE).getString(title + "|" + artist, null)
@@ -604,13 +635,20 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
                 Icon(Icons.Default.Devices, "Dispositivos", tint = Green)
                 val context = androidx.compose.ui.platform.LocalContext.current
                 IconButton(onClick = {
-                    val send = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_SUBJECT, title)
-                        putExtra(Intent.EXTRA_TEXT, "Estou ouvindo $title — $artist no SPOTMY.")
+                    runCatching {
+                        val imageFile = createStoryShareImage(context, title, artist, album, artwork)
+                        val imageUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", imageFile)
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "image/png"
+                            putExtra(Intent.EXTRA_STREAM, imageUri)
+                            putExtra(Intent.EXTRA_TEXT, "Estou ouvindo $title — $artist no SPOTMY.")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(send, "Compartilhar card da música"))
+                    }.onFailure {
+                        android.widget.Toast.makeText(context, "Não foi possível criar o card de compartilhamento.", android.widget.Toast.LENGTH_SHORT).show()
                     }
-                    context.startActivity(Intent.createChooser(send, "Compartilhar música"))
-                }) { Icon(Icons.Default.Share, "Compartilhar", tint = White) }
+                }) { Icon(Icons.Default.Share, "Compartilhar card", tint = White) }
                 IconButton(onClick = {
                     android.widget.Toast.makeText(context, "A fila está disponível pelos controles de próxima música.", android.widget.Toast.LENGTH_SHORT).show()
                 }) { Icon(Icons.Default.QueueMusic, "Fila", tint = Gray) }
@@ -633,20 +671,116 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
                         if (lyricsText.isBlank()) {
                             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                                 CircularProgressIndicator(color = Green); Spacer(Modifier.height(16.dp)); Text("Buscando a letra…", color = Gray)
+                                TextButton(onClick = { showPasteLyrics = true; pastedLyrics = "" }) { Icon(Icons.Default.ContentPaste, null, tint = Green); Spacer(Modifier.width(6.dp)); Text("Colar letra", color = Green) }
                                 TextButton(onClick = { lyricsPicker.launch(arrayOf("text/plain", "application/octet-stream")) }) { Text("Importar arquivo .TXT ou .LRC", color = Green) }
-                                Text("O SPOTMY não importa diretamente o catálogo de letras do Spotify.", color = Gray, fontSize = 11.sp)
+                                Text("A letra também é procurada automaticamente pelo título e artista.", color = Gray, fontSize = 11.sp)
                             }
                         } else {
                             LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(top = 12.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
                                 items(lyricsText.lines().filter { it.isNotBlank() }) { line -> Text(line, color = White, fontSize = 19.sp, lineHeight = 29.sp, fontWeight = FontWeight.Medium) }
                             }
-                            TextButton(onClick = { lyricsPicker.launch(arrayOf("text/plain", "application/octet-stream")) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Icon(Icons.Default.FileOpen, null, tint = Green); Spacer(Modifier.width(8.dp)); Text("Importar outra letra (.TXT / .LRC)", color = Green) }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                                TextButton(onClick = { pastedLyrics = lyricsText; showPasteLyrics = true }) { Icon(Icons.Default.ContentPaste, null, tint = Green); Spacer(Modifier.width(6.dp)); Text("Editar / colar", color = Green) }
+                                TextButton(onClick = { lyricsPicker.launch(arrayOf("text/plain", "application/octet-stream")) }) { Icon(Icons.Default.FileOpen, null, tint = Green); Spacer(Modifier.width(6.dp)); Text("Importar arquivo", color = Green) }
+                            }
                         }
                     }
                 }
             }
         }
+        if (showPasteLyrics) {
+            AlertDialog(
+                onDismissRequest = { showPasteLyrics = false },
+                containerColor = Panel,
+                title = { Text("Colar letra da música", color = White) },
+                text = {
+                    Column {
+                        Text("Copie a letra de onde você já a tem e cole aqui. O SPOTMY salva para esta música.", color = Gray, fontSize = 12.sp)
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = pastedLyrics,
+                            onValueChange = { pastedLyrics = it },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 360.dp),
+                            placeholder = { Text("Toque e segure aqui para Colar") },
+                            minLines = 7,
+                            maxLines = 14
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val cleaned = pastedLyrics.trim()
+                        if (cleaned.isNotBlank()) {
+                            context.getSharedPreferences("spotmy_lyrics", android.content.Context.MODE_PRIVATE).edit()
+                                .putString(title + "|" + artist, cleaned).apply()
+                            lyricsText = cleaned.replace(Regex("\\[(\\d{1,2}:\\d{2}(?:\\.\\d{1,3})?)\\]"), "").trim()
+                            lyricsStatus = "Letra salva nesta música • sem sincronização"
+                            showPasteLyrics = false
+                        }
+                    }) { Text("Salvar letra", color = Green) }
+                },
+                dismissButton = { TextButton(onClick = { showPasteLyrics = false }) { Text("Cancelar", color = Gray) } }
+            )
+        }
     }
+}
+
+
+private fun createStoryShareImage(context: android.content.Context, title: String, artist: String, album: String, artwork: Uri?): java.io.File {
+    val width = 1080
+    val height = 1920
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val background = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(),
+            AndroidColor.rgb(34, 75, 52), AndroidColor.rgb(8, 8, 8), Shader.TileMode.CLAMP)
+    }
+    canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), background)
+    val left = 80f
+    val right = 1000f
+    val coverTop = 250f
+    val coverSize = 920f
+    val cover = runCatching {
+        artwork?.let { uri -> context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } }
+    }.getOrNull()
+    if (cover != null) {
+        val scale = maxOf(coverSize / cover.width, coverSize / cover.height)
+        val scaled = Bitmap.createScaledBitmap(cover, (cover.width * scale).toInt(), (cover.height * scale).toInt(), true)
+        val srcLeft = ((scaled.width - coverSize) / 2f).toInt()
+        val srcTop = ((scaled.height - coverSize) / 2f).toInt()
+        canvas.drawBitmap(scaled, android.graphics.Rect(srcLeft, srcTop, srcLeft + coverSize.toInt(), srcTop + coverSize.toInt()),
+            RectF(left, coverTop, right, coverTop + coverSize), Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+        if (scaled !== cover) scaled.recycle()
+        cover.recycle()
+    } else {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.rgb(45, 70, 52) }
+        canvas.drawRoundRect(RectF(left, coverTop, right, coverTop + coverSize), 30f, 30f, p)
+        p.color = AndroidColor.WHITE
+        p.textSize = 180f
+        p.typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        canvas.drawText("SP", 390f, coverTop + 520f, p)
+    }
+    val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.WHITE; typeface = Typeface.create("sans-serif", Typeface.BOLD) }
+    whitePaint.textSize = 38f
+    canvas.drawText("SPOTMY  •  OUVINDO AGORA", left, 150f, whitePaint)
+    whitePaint.textSize = 58f
+    canvas.drawText(title.take(28), left, 1280f, whitePaint)
+    whitePaint.textSize = 42f
+    whitePaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+    canvas.drawText(artist.take(38), left, 1350f, whitePaint)
+    val muted = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.LTGRAY; textSize = 30f }
+    canvas.drawText((album.ifBlank { "Música local" }).take(45), left, 1410f, muted)
+    val green = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.rgb(30, 215, 96) }
+    canvas.drawRoundRect(RectF(left, 1500f, left + 72f, 1572f), 36f, 36f, green)
+    val note = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.BLACK; textSize = 44f; typeface = Typeface.DEFAULT_BOLD }
+    canvas.drawText("♪", left + 20f, 1550f, note)
+    whitePaint.textSize = 34f
+    canvas.drawText("Sua música. Seu momento.", left + 95f, 1548f, whitePaint)
+    val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
+    val file = java.io.File(dir, "spotmy_story.png")
+    file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    bitmap.recycle()
+    return file
 }
 
 
