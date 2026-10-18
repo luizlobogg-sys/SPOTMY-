@@ -133,6 +133,16 @@ class MusicService : MediaSessionService() {
             handleAudioFocus
         )
         setHandleAudioBecomingNoisy(true)
+        addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                val prefs = getSharedPreferences("spotmy_playback", MODE_PRIVATE)
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && prefs.getBoolean("stop_on_track_end", false)) {
+                    this@MusicService.activePlayer?.pause()
+                    this@MusicService.activePlayer?.seekTo(0L)
+                    prefs.edit().putBoolean("stop_on_track_end", false).apply()
+                }
+            }
+        })
         volume = 1f
     }
 
