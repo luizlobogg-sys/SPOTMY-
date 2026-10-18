@@ -124,16 +124,47 @@ class MusicService : MediaSessionService() {
         lastProfile = profile
     }
 
-    private fun createPlayer(handleAudioFocus: Boolean = true) = ExoPlayer.Builder(this).build().apply {
-        setAudioAttributes(
+    private fun createPlayer(handleAudioFocus: Boolean = true): ExoPlayer {
+        val createdPlayer = ExoPlayer.Builder(this).build()
+        createdPlayer.setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                 .build(),
             handleAudioFocus
         )
-        setHandleAudioBecomingNoisy(true)
-        addListener(object : Player.Listener {
+        createdPlayer.setHandleAudioBecomingNoisy(true)
+        createdPlayer.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState != Player.STATE_ENDED || this@MusicService.activePlayer !== createdPlayer) return
+                val prefs = getSharedPreferences("spotmy_playback", MODE_PRIVATE)
+                if (prefs.getBoolean("stop_on_track_end", false)) return
+                handler.post {
+                    if (this@MusicService.activePlayer !== createdPlayer ||
+                        createdPlayer.playbackState != Player.STATE_ENDED ||
+                        createdPlayer.mediaItemCount == 0 ||
+                        prefs.getBoolean("stop_on_track_end", false)) return@post
+                    val library = runCatching { loadTracks(this@MusicService) }.getOrDefault(emptyList())
+                    val currentUri = createdPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
+                    val candidates = library.filter { it.uri.toString() != currentUri }
+                    val nextTrack = (candidates.ifEmpty { library }).randomOrNull() ?: return@post
+                    val nextItem = androidx.media3.common.MediaItem.Builder()
+                        .setMediaId(nextTrack.id.toString())
+                        .setUri(nextTrack.uri)
+                        .setMediaMetadata(
+                            androidx.media3.common.MediaMetadata.Builder()
+                                .setTitle(nextTrack.title)
+                                .setArtist(nextTrack.artist)
+                                .setAlbumTitle(nextTrack.album)
+                                .setArtworkUri(nextTrack.artworkUri)
+                                .build()
+                        ).build()
+                    createdPlayer.setMediaItem(nextItem)
+                    createdPlayer.prepare()
+                    createdPlayer.play()
+                }
+            }
+
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                 val prefs = getSharedPreferences("spotmy_playback", MODE_PRIVATE)
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && prefs.getBoolean("stop_on_track_end", false)) {
@@ -143,7 +174,8 @@ class MusicService : MediaSessionService() {
                 }
             }
         })
-        volume = 1f
+        createdPlayer.volume = 1f
+        return createdPlayer
     }
 
     private fun startFade(source: ExoPlayer, nextIndex: Int, durationMs: Long) {
