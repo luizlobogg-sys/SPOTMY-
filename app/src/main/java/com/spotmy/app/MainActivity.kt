@@ -473,7 +473,7 @@ private fun HomeScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -
 @Composable
 private fun SearchScreen(query: String, onQuery: (String) -> Unit, tracks: List<Track>, allowed: Boolean, onPermission: () -> Unit, onQueueNext: (Track) -> Unit, onPlay: (Track) -> Unit) {
     var searchMode by remember { mutableStateOf("Músicas") }
-    val artistNames = tracks.map { it.artist.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
+    val artistNames = tracks.flatMap { splitArtistCredits(it.artist) }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
     Column(Modifier.fillMaxSize()) {
         Text("Buscar", color = White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 16.dp))
@@ -496,7 +496,7 @@ private fun SearchScreen(query: String, onQuery: (String) -> Unit, tracks: List<
             else LazyColumn(Modifier.weight(1f)) { items(shownArtists, key = { it.lowercase() }) { name ->
                 Row(Modifier.fillMaxWidth().clickable { onQuery(name); searchMode = "Músicas" }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(48.dp).clip(CircleShape).background(PanelLight), contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, null, tint = White, modifier = Modifier.size(27.dp)) }
-                    Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(name, color = White, fontWeight = FontWeight.SemiBold); Text("${tracks.count { it.artist.equals(name, true) }} músicas na biblioteca", color = Gray, fontSize = 12.sp) }
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(name, color = White, fontWeight = FontWeight.SemiBold); Text("${tracks.count { track -> splitArtistCredits(track.artist).any { it.equals(name, true) } }} músicas na biblioteca", color = Gray, fontSize = 12.sp) }
                     Icon(Icons.Default.ChevronRight, null, tint = Gray)
                 }
             } }
@@ -576,7 +576,11 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
                 var playlistName = baseName
                 var suffix = 2
                 while (playlistName in playlists) { playlistName = baseName + " (" + suffix + ")"; suffix++ }
-                persistPlaylists(playlists + (playlistName to matched.map { it.id }.toSet()))
+                val updatedPlaylists = playlists + (playlistName to matched.map { it.id }.toSet())
+                val playlistJson = org.json.JSONObject()
+                updatedPlaylists.forEach { (name, ids) -> playlistJson.put(name, org.json.JSONArray(ids.toList())) }
+                prefs.edit().putString("items", playlistJson.toString()).apply()
+                playlists = updatedPlaylists
                 val missing = (imported.size - matched.size).coerceAtLeast(0)
                 soundizzImportMessage = "Playlist ‘" + playlistName + "’ criada com " + matched.size + " músicas locais. " +
                     if (missing > 0) missing.toString() + " faixas não foram encontradas no aparelho. O Soundiiz transfere os dados da playlist, não baixa os arquivos de áudio." else "Todas as faixas foram encontradas na biblioteca local."
@@ -655,22 +659,45 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
                     }
                 }
             }
+            val artistCredits = tracks.flatMap { track -> splitArtistCredits(track.artist).map { name -> name to track } }
+            val artistList = artistCredits.map { it.first }.distinctBy { it.lowercase() }.let { names -> if (alphabetical) names.sortedBy { it.lowercase() } else names }
+            var selectedArtist by remember { mutableStateOf<String?>(null) }
             val list = when (filter) {
                 "Álbuns" -> tracks.distinctBy { it.album }
-                "Artistas" -> tracks.distinctBy { it.artist }
+                "Artistas" -> tracks.filter { track -> selectedArtist?.let { chosen -> splitArtistCredits(track.artist).any { it.equals(chosen, true) } } ?: false }
                 else -> tracks
             }.let { if (alphabetical) it.sortedBy { t -> t.title.lowercase() } else it }
-            LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
-                items(list, key = { "lib-" + it.id }) { track ->
-                    if (filter == "Álbuns" || filter == "Artistas") {
-                        Row(Modifier.fillMaxWidth().clickable { onPlay(track) }.padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Cover(track.artworkUri, Modifier.size(54.dp), filter == "Artistas")
-                            Column(Modifier.padding(start = 12.dp)) {
-                                Text(if (filter == "Artistas") track.artist else track.album.ifBlank { track.title }, color = White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                Text(if (filter == "Artistas") "Artista" else "Álbum • " + track.artist, color = Gray, fontSize = 12.sp)
+            if (filter == "Artistas" && selectedArtist == null) {
+                LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+                    items(artistList, key = { "artist-" + it.lowercase() }) { name ->
+                        val count = tracks.count { track -> splitArtistCredits(track.artist).any { it.equals(name, true) } }
+                        Row(Modifier.fillMaxWidth().clickable { selectedArtist = name }.padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(54.dp).clip(CircleShape).background(PanelLight), contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, null, tint = White) }
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text(name, color = White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                Text("$count músicas", color = Gray, fontSize = 12.sp)
                             }
+                            Icon(Icons.Default.ChevronRight, null, tint = Gray)
                         }
-                    } else TrackRow(track, { onPlay(track) }, Modifier.padding(horizontal = 16.dp), { onQueueNext(track) })
+                    }
+                }
+            } else {
+                if (filter == "Artistas") Row(Modifier.fillMaxWidth().clickable { selectedArtist = null }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.ArrowBack, null, tint = Green)
+                    Text("Todos os artistas  /  " + selectedArtist.orEmpty(), color = White, modifier = Modifier.padding(start = 8.dp))
+                }
+                LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+                    items(list, key = { "lib-" + it.id }) { track ->
+                        if (filter == "Álbuns") {
+                            Row(Modifier.fillMaxWidth().clickable { onPlay(track) }.padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Cover(track.artworkUri, Modifier.size(54.dp), false)
+                                Column(Modifier.padding(start = 12.dp)) {
+                                    Text(track.album.ifBlank { track.title }, color = White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                    Text("Álbum • " + track.artist, color = Gray, fontSize = 12.sp)
+                                }
+                            }
+                        } else TrackRow(track, { onPlay(track) }, Modifier.padding(horizontal = 16.dp), { onQueueNext(track) })
+                    }
                 }
             }
         }
@@ -1406,6 +1433,14 @@ private fun EmptyCard(title: String, subtitle: String, action: String, onClick: 
             Text(action, fontWeight = FontWeight.Bold)
         }
     }
+}
+
+private fun splitArtistCredits(raw: String): List<String> {
+    // Split only artist metadata, never song titles.
+    return raw.split(Regex("(?i)\\s*(?:,|;|\\s+feat\\.?\\s+|\\s+ft\\.?\\s+|\\s+featuring\\s+|\\s+with\\s+|\\s+x\\s+|\\s*&\\s*|\\s+and\\s+)\\s*"))
+        .map { it.trim().trim('-', '•') }
+        .filter { it.isNotBlank() }
+        .distinctBy { it.lowercase() }
 }
 
 private fun parseSoundizzCsvLine(line: String): List<String> {
