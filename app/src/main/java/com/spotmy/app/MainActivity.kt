@@ -17,6 +17,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.app.DownloadManager
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.ComponentActivity
@@ -606,13 +608,15 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Spacer(Modifier.width(8.dp))
-            listOf("Playlists", "Artistas", "Álbuns", "Podcasts", "Músicas").forEach { value ->
+            listOf("Playlists", "Artistas", "Álbuns", "Podcasts", "Músicas", "SNAPMY").forEach { value ->
                 Surface(color = if (filter == value) Green else PanelLight, shape = CircleShape, modifier = Modifier.clickable { filter = value }) {
                     Text(value, color = if (filter == value) Color.Black else White, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
                 }
             }
         }
-        if (!allowed) PermissionCard(onPermission, Modifier.padding(horizontal = 16.dp))
+        if (filter == "SNAPMY") {
+            SnapMyScreen(onRefresh)
+        } else if (!allowed) PermissionCard(onPermission, Modifier.padding(horizontal = 16.dp))
         else if (tracks.isEmpty()) EmptyCard("Sua biblioteca está vazia", "As músicas locais aparecerão aqui quando houver arquivos de áudio no aparelho.", "Atualizar", onRefresh, Modifier.padding(horizontal = 16.dp))
         else {
             if (filter == "Playlists") {
@@ -764,6 +768,93 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
                 editingPlaylist = null
             }) { Text("Excluir", color = Color(0xFFFF7777)) } }
         )
+    }
+}
+
+@Composable
+private fun SnapMyScreen(onRefresh: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var audioUrl by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf<String?>(null) }
+    var downloading by remember { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(54.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(Color(0xFF6D28D9), Color(0xFF1ED760)))), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Downloading, null, tint = Color.White, modifier = Modifier.size(30.dp))
+            }
+            Column(Modifier.padding(start = 12.dp)) {
+                Text("SNAPMY", color = White, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold)
+                Text("Baixe áudio direto para sua biblioteca", color = Gray, fontSize = 13.sp)
+            }
+        }
+        Text("Cole o link direto de um arquivo de áudio hospedado em um site que permita o download. O arquivo será salvo em Música/SPOTMY e poderá aparecer na biblioteca após atualizar.", color = Gray, fontSize = 13.sp)
+        OutlinedTextField(
+            value = audioUrl,
+            onValueChange = { audioUrl = it; status = null },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Link direto do arquivo de áudio") },
+            placeholder = { Text("https://site.com/musica.mp3") },
+            singleLine = true,
+            shape = RoundedCornerShape(10.dp),
+            leadingIcon = { Icon(Icons.Default.Link, null, tint = Green) },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = White, unfocusedTextColor = White,
+                focusedBorderColor = Green, unfocusedBorderColor = PanelLight,
+                focusedLabelColor = Green, unfocusedLabelColor = Gray,
+                cursorColor = Green
+            )
+        )
+        Button(
+            onClick = {
+                val raw = audioUrl.trim()
+                runCatching {
+                    val uri = Uri.parse(raw)
+                    require(uri.scheme == "https" || uri.scheme == "http") { "Informe um link HTTP ou HTTPS válido." }
+                    require(!uri.host.isNullOrBlank()) { "O link não parece válido." }
+                    val pathName = uri.lastPathSegment.orEmpty().substringBefore('?')
+                    val extension = pathName.substringAfterLast('.', "").lowercase()
+                    require(extension in setOf("mp3", "m4a", "aac", "flac", "ogg", "opus", "wav", "aiff", "alac")) {
+                        "Use o link direto de um arquivo de áudio (.mp3, .m4a, .flac, .ogg, .wav etc.), não o endereço de uma playlist ou página."
+                    }
+                    val safeName = pathName.replace(Regex("[^A-Za-z0-9._-]"), "_").take(120).ifBlank { "audio.$extension" }
+                    val request = DownloadManager.Request(uri)
+                        .setTitle(safeName)
+                        .setDescription("SNAPMY • SPOTMY")
+                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                        .setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, "SPOTMY/$safeName")
+                    val manager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as DownloadManager
+                    manager.enqueue(request)
+                    status = "Download iniciado: $safeName. Quando terminar, toque em Atualizar biblioteca."
+                    downloading = true
+                }.onFailure {
+                    status = it.message ?: "Não foi possível iniciar o download."
+                    downloading = false
+                }
+            },
+            enabled = !downloading,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)
+        ) {
+            Icon(Icons.Default.FileDownload, null)
+            Spacer(Modifier.width(8.dp))
+            Text(if (downloading) "Download iniciado" else "Baixar áudio", fontWeight = FontWeight.Bold)
+        }
+        OutlinedButton(onClick = { onRefresh(); downloading = false; status = "Biblioteca atualizada. Se o download ainda estiver em andamento, atualize novamente quando terminar." }, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.Refresh, null)
+            Spacer(Modifier.width(8.dp))
+            Text("Atualizar biblioteca")
+        }
+        status?.let { message ->
+            Text(message, color = if (message.startsWith("Download iniciado")) Green else Color(0xFFFFC266), fontSize = 13.sp)
+        }
+        Divider(color = PanelLight)
+        Text("O que o SNAPMY aceita", color = White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Text("• Links diretos de arquivos de áudio, quando o site permite baixar.\n• Download pelo gerenciador nativo do Android, com notificação de progresso.\n• Arquivos salvos em Música/SPOTMY para você adicionar à biblioteca local.", color = Gray, fontSize = 13.sp)
+        Text("Limite importante", color = White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Text("Links de playlists do Spotify, Deezer ou YouTube normalmente apontam para páginas e não para os arquivos de áudio. O SNAPMY não remove DRM nem contorna proteções; para essas playlists, use exportação autorizada (por exemplo, CSV do SOUNDIZZ) e arquivos que você tenha direito de baixar.", color = Gray, fontSize = 12.sp)
     }
 }
 
