@@ -770,7 +770,7 @@ private fun SnapMyScreen(onRefresh: () -> Unit) {
                 val uri = runCatching { Uri.parse(raw) }.getOrNull()
                 if (uri == null || (uri.scheme != "https" && uri.scheme != "http") || uri.host.isNullOrBlank()) {
                     status = "Cole um endereço HTTP ou HTTPS válido."
-                } else if (mode == "YouTube" && !listOf("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "music.youtube.com").any { host -> uri.host.equals(host, true) || uri.host.endsWith(".$host", true) }) {
+                } else if (mode == "YouTube" && !listOf("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "music.youtube.com").any { host -> (uri.host?.equals(host, true) == true) || (uri.host?.endsWith(".$host", true) == true) }) {
                     status = "Para esta opção, use um link do YouTube. Para outros sites, tente Link direto."
                 } else if (mode == "Link direto") {
                     runCatching {
@@ -806,7 +806,7 @@ private fun SnapMyScreen(onRefresh: () -> Unit) {
                                 request.addOption("--audio-quality", "0")
                                 request.addOption("--embed-metadata")
                                 request.addOption("-o", File(outputDir, "%(title).180B.%(ext)s").absolutePath)
-                                YoutubeDL.getInstance().execute(request) { percent, _ ->
+                                YoutubeDL.getInstance().execute(request) { percent, _, _ ->
                                     scope.launch { progress = percent.toInt().coerceIn(0, 100); status = "Baixando áudio… $progress%" }
                                 }
                                 val audioFiles = outputDir.listFiles()?.filter { file ->
