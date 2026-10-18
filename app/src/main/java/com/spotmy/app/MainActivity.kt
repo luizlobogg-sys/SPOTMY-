@@ -239,7 +239,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Tab { HOME, SEARCH, LIBRARY, CAPSULE, SETTINGS }
+private enum class Tab { HOME, SEARCH, LIBRARY, DOWNLOAD, CAPSULE, SETTINGS }
 
 @Composable
 private fun SpotmyApp(
@@ -287,7 +287,7 @@ private fun SpotmyApp(
                     NavigationBar(containerColor = Color.Black, tonalElevation = 0.dp, modifier = Modifier.height(64.dp)) {
                         listOf(Triple(Tab.HOME, "Início", Icons.Default.Home),
                             Triple(Tab.SEARCH, "Buscar", Icons.Default.Search),
-                            Triple(Tab.LIBRARY, "Sua Biblioteca", Icons.Default.LibraryMusic), Triple(Tab.CAPSULE, "Cápsula", Icons.Default.History), Triple(Tab.SETTINGS, "Configurações", Icons.Default.Settings)).forEach { item ->
+                            Triple(Tab.LIBRARY, "Biblioteca", Icons.Default.LibraryMusic), Triple(Tab.DOWNLOAD, "Baixar", Icons.Default.FileDownload), Triple(Tab.CAPSULE, "Cápsula", Icons.Default.History), Triple(Tab.SETTINGS, "Config.", Icons.Default.Settings)).forEach { item ->
                             NavigationBarItem(
                                 selected = tab == item.first, onClick = { tab = item.first },
                                 icon = { Icon(item.third, item.second, Modifier.size(24.dp)) },
@@ -306,6 +306,7 @@ private fun SpotmyApp(
                     Tab.HOME -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["home"] ?: fontFamilies["app"] ?: FontFamily.Default)) { HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { onPlayQueue(it); expandedPlayer = true }, onQueueNext, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS }) }
                     Tab.SEARCH -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["search"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SearchScreen(query, { query = it }, filtered, hasPermission, onPermission, onQueueNext) { onPlay(it); expandedPlayer = true } }
                     Tab.LIBRARY -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["library"] ?: fontFamilies["app"] ?: FontFamily.Default)) { LibraryScreen(tracks, hasPermission, onPermission, onRefresh, onQueueNext) { onPlay(it); expandedPlayer = true } }
+                    Tab.DOWNLOAD -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["library"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SnapMyScreen(onRefresh) }
                     Tab.CAPSULE -> CapsuleScreen()
                     Tab.SETTINGS -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["settings"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SettingsScreen(player, fontFamilies, lightTheme = lightTheme, accentArgb = accentArgb, onAppearanceChange = onAppearanceChange, onImportFont = onImportFont) }
                 }
@@ -576,15 +577,13 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Spacer(Modifier.width(8.dp))
-            listOf("Playlists", "Artistas", "Álbuns", "Podcasts", "Músicas", "SNAPMY").forEach { value ->
+            listOf("Playlists", "Artistas", "Álbuns", "Podcasts", "Músicas").forEach { value ->
                 Surface(color = if (filter == value) Green else PanelLight, shape = CircleShape, modifier = Modifier.clickable { filter = value }) {
                     Text(value, color = if (filter == value) Color.Black else White, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
                 }
             }
         }
-        if (filter == "SNAPMY") {
-            SnapMyScreen(onRefresh)
-        } else if (!allowed) PermissionCard(onPermission, Modifier.padding(horizontal = 16.dp))
+        if (!allowed) PermissionCard(onPermission, Modifier.padding(horizontal = 16.dp))
         else if (tracks.isEmpty()) EmptyCard("Sua biblioteca está vazia", "As músicas locais aparecerão aqui quando houver arquivos de áudio no aparelho.", "Atualizar", onRefresh, Modifier.padding(horizontal = 16.dp))
         else {
             if (filter == "Playlists") {
