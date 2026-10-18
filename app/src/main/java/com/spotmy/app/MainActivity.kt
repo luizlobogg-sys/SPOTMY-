@@ -471,6 +471,8 @@ private fun HomeScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -
 
 @Composable
 private fun SearchScreen(query: String, onQuery: (String) -> Unit, tracks: List<Track>, allowed: Boolean, onPermission: () -> Unit, onQueueNext: (Track) -> Unit, onPlay: (Track) -> Unit) {
+    var searchMode by remember { mutableStateOf("Músicas") }
+    val artistNames = tracks.map { it.artist.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
     Column(Modifier.fillMaxSize()) {
         Text("Buscar", color = White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 16.dp))
@@ -482,8 +484,22 @@ private fun SearchScreen(query: String, onQuery: (String) -> Unit, tracks: List<
                 focusedTextColor = Color.Black, unfocusedTextColor = Color.Black, cursorColor = Color.Black,
                 focusedBorderColor = White, unfocusedBorderColor = White)
         )
-        Spacer(Modifier.height(20.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("Músicas", "Artistas").forEach { mode -> FilterChip(selected = searchMode == mode, onClick = { searchMode = mode }, label = { Text(mode) }) }
+        }
+        Spacer(Modifier.height(4.dp))
         if (!allowed) PermissionCard(onPermission, Modifier.padding(horizontal = 16.dp))
+        else if (searchMode == "Artistas") {
+            val shownArtists = artistNames.filter { query.isBlank() || it.contains(query, ignoreCase = true) }
+            if (shownArtists.isEmpty()) Text("Nenhum artista encontrado na sua biblioteca", color = Gray, modifier = Modifier.padding(16.dp))
+            else LazyColumn(Modifier.weight(1f)) { items(shownArtists, key = { it.lowercase() }) { name ->
+                Row(Modifier.fillMaxWidth().clickable { onQuery(name); searchMode = "Músicas" }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(48.dp).clip(CircleShape).background(PanelLight), contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, null, tint = White, modifier = Modifier.size(27.dp)) }
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(name, color = White, fontWeight = FontWeight.SemiBold); Text("${tracks.count { it.artist.equals(name, true) }} músicas na biblioteca", color = Gray, fontSize = 12.sp) }
+                    Icon(Icons.Default.ChevronRight, null, tint = Gray)
+                }
+            } }
+        }
         else if (query.isNotBlank()) {
             if (tracks.isEmpty()) Text("Nenhum resultado encontrado", color = Gray, modifier = Modifier.padding(16.dp))
             else LazyColumn { items(tracks, key = { it.id }) { TrackRow(it, { onPlay(it) }, Modifier.padding(horizontal = 16.dp), { onQueueNext(it) }) } }
@@ -996,6 +1012,31 @@ private fun createStoryShareImage(context: android.content.Context, title: Strin
 }
 
 
+private fun createCapsuleShareImage(context: android.content.Context, total: String, month: String, artists: List<String>, songs: List<String>): java.io.File {
+    val width = 1080; val height = 1350
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap); canvas.drawColor(AndroidColor.rgb(18, 18, 18))
+    val accent = AndroidColor.rgb(30, 215, 96)
+    canvas.drawRoundRect(RectF(64f, 64f, 1016f, 1286f), 42f, 42f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.rgb(35, 38, 36) })
+    canvas.drawCircle(930f, 155f, 110f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.argb(35, 30, 215, 96) })
+    val brand = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent; textSize = 36f; typeface = Typeface.create("sans-serif", Typeface.BOLD) }
+    canvas.drawText("SPOTMY", 112f, 150f, brand)
+    val heading = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.WHITE; textSize = 64f; typeface = Typeface.create("sans-serif", Typeface.BOLD) }
+    canvas.drawText("Cápsula Sonora", 112f, 260f, heading)
+    val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.LTGRAY; textSize = 27f }
+    val value = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.WHITE; textSize = 44f; typeface = Typeface.create("sans-serif", Typeface.BOLD) }
+    canvas.drawText("OUVIDO NESTE APARELHO", 112f, 350f, label); canvas.drawText(total, 112f, 414f, value)
+    canvas.drawText("NESTE MÊS", 580f, 350f, label); canvas.drawText(month, 580f, 414f, value)
+    canvas.drawLine(112f, 465f, 968f, 465f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.argb(80, 255, 255, 255); strokeWidth = 2f })
+    canvas.drawText("ARTISTAS MAIS OUVIDOS", 112f, 535f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent; textSize = 28f; typeface = Typeface.create("sans-serif", Typeface.BOLD) })
+    artists.take(3).forEachIndexed { index, name -> canvas.drawText("${index + 1}. ${name.take(32)}", 112f, 590f + index * 54f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.WHITE; textSize = 31f }) }
+    canvas.drawText("FAIXAS EM DESTAQUE", 112f, 800f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent; textSize = 28f; typeface = Typeface.create("sans-serif", Typeface.BOLD) })
+    songs.take(3).forEachIndexed { index, name -> canvas.drawText("${index + 1}. ${name.take(32)}", 112f, 855f + index * 54f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.WHITE; textSize = 29f }) }
+    canvas.drawText("Minha história musical continua.", 112f, 1120f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.LTGRAY; textSize = 28f })
+    canvas.drawText("OUÇA • DESCUBRA • REPITA", 112f, 1190f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent; textSize = 25f; typeface = Typeface.create("sans-serif", Typeface.BOLD) })
+    val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }; val file = java.io.File(dir, "spotmy_capsule.png")
+    file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle(); return file
+}
 @Composable
 private fun CapsuleScreen() {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1006,6 +1047,7 @@ private fun CapsuleScreen() {
             delay(10_000L)
         }
     }
+    var showCapsuleDetails by remember { mutableStateOf(false) }
     val month = java.time.YearMonth.now().toString()
     val total = (snapshot["total_ms"] as? Long) ?: 0L
     val monthTotal = (snapshot["month:$month"] as? Long) ?: 0L
@@ -1016,8 +1058,22 @@ private fun CapsuleScreen() {
         return if (minutes >= 60L) "${minutes / 60} h ${minutes % 60} min" else "${minutes} min"
     }
     Column(Modifier.fillMaxSize().background(Black).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 22.dp)) {
-        Text("Cápsula do Tempo", color = White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Text("Sua história musical, registrada neste aparelho.", color = Gray, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp, bottom = 18.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Cápsula Sonora", color = White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Text("Sua história musical, registrada neste aparelho.", color = Gray, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp, bottom = 18.dp))
+            }
+            val shareContext = androidx.compose.ui.platform.LocalContext.current
+            IconButton(onClick = {
+                runCatching {
+                    val imageFile = createCapsuleShareImage(shareContext, duration(total), duration(monthTotal), artists.map { it.key.removePrefix("artist:") }, songs.map { it.key.removePrefix("track:").split("|", limit = 2).firstOrNull().orEmpty() })
+                    val imageUri = FileProvider.getUriForFile(shareContext, "${shareContext.packageName}.fileprovider", imageFile)
+                    val send = Intent(Intent.ACTION_SEND).apply { type = "image/png"; putExtra(Intent.EXTRA_STREAM, imageUri); putExtra(Intent.EXTRA_TEXT, "Minha Cápsula Sonora no SPOTMY — minha história musical."); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                    shareContext.startActivity(Intent.createChooser(send, "Compartilhar Cápsula Sonora"))
+                }.onFailure { android.widget.Toast.makeText(shareContext, "Não foi possível preparar o compartilhamento.", android.widget.Toast.LENGTH_SHORT).show() }
+            }) { Icon(Icons.Default.Share, "Compartilhar Cápsula Sonora", tint = Green, modifier = Modifier.size(25.dp)) }
+        }
+        androidx.compose.animation.AnimatedVisibility(visible = true, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it / 8 })) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Panel).padding(16.dp)) {
                 Icon(Icons.Default.Headphones, null, tint = Green)
@@ -1030,6 +1086,9 @@ private fun CapsuleScreen() {
                 Text("Desde a ativação", color = Gray, fontSize = 12.sp)
             }
         }
+        }
+        androidx.compose.animation.AnimatedVisibility(visible = true, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it / 10 })) {
+        Column(Modifier.fillMaxWidth().animateContentSize()) {
         Text("ARTISTAS MAIS OUVIDOS", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 24.dp, bottom = 8.dp))
         if (artists.isEmpty()) Text("As estatísticas aparecem enquanto você ouve músicas com o SPOTMY aberto ou em segundo plano.", color = Gray, fontSize = 13.sp)
         artists.forEachIndexed { index, entry ->
@@ -1048,6 +1107,8 @@ private fun CapsuleScreen() {
             }
         }
         Text("Os registros começam nesta versão; reproduções anteriores não podem ser recuperadas. O histórico fica salvo localmente.", color = Gray, fontSize = 11.sp, modifier = Modifier.padding(top = 24.dp, bottom = 20.dp))
+        }
+        }
     }
 }
 
