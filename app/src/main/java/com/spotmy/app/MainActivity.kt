@@ -307,8 +307,19 @@ private fun HomeScreen(
                     val albums = tracks.distinctBy { if (it.album.isBlank()) it.id.toString() else it.album + "|" + it.artist }.take(20)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(albums, key = { it.id }) { track ->
-                            Column(Modifier.width(145.dp).clickable { onPlay(track) }) {
-                                TrackCover(track.artworkUri, Modifier.fillMaxWidth().height(145.dp), rounded = false)
+                            Column(Modifier.width(145.dp)) {
+                                Box(
+                                    Modifier.fillMaxWidth().height(145.dp).clickable { onPlay(track) }
+                                ) {
+                                    TrackCover(track.artworkUri, Modifier.fillMaxSize(), rounded = false)
+                                    Box(
+                                        Modifier.align(Alignment.BottomEnd).padding(8.dp).size(42.dp)
+                                            .clip(CircleShape).background(SpotifyGreenLike),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = "Tocar música", tint = Color.Black, modifier = Modifier.size(28.dp))
+                                    }
+                                }
                                 Text(track.album.ifBlank { track.title }, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                                 Text(track.artist, color = SoftGray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
