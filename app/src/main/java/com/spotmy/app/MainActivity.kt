@@ -71,6 +71,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
+import com.yausername.youtubedl_android.YoutubeDL.UpdateChannel
 import com.yausername.ffmpeg.FFmpeg
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -795,10 +796,16 @@ private fun SnapMyScreen(onRefresh: () -> Unit) {
                             runCatching {
                                 YoutubeDL.getInstance().init(context.applicationContext)
                                 FFmpeg.getInstance().init(context.applicationContext)
+                                // Atualiza o extrator para a versão nightly, pois o YouTube muda frequentemente seus formatos.
+                                // A biblioteca baixa a versão atualizada antes de iniciar o download.
+                                YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext, UpdateChannel.NIGHTLY)
                                 val outputDir = File(context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir, "SNAPMY")
                                 if (!outputDir.exists()) outputDir.mkdirs()
                                 val request = YoutubeDLRequest(raw)
                                 request.addOption("--no-mtime")
+                                request.addOption("--ignore-errors")
+                                request.addOption("--extractor-retries", "3")
+                                request.addOption("--retry-sleep", "1:3:8")
                                 request.addOption("--yes-playlist")
                                 request.addOption("-x")
                                 request.addOption("--audio-format", "mp3")
