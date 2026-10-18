@@ -69,13 +69,13 @@ class MusicService : MediaSessionService() {
         handler.post(crossfadeTick)
     }
 
-    private fun createPlayer() = ExoPlayer.Builder(this).build().apply {
+    private fun createPlayer(handleAudioFocus: Boolean = true) = ExoPlayer.Builder(this).build().apply {
         setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                 .build(),
-            true
+            handleAudioFocus
         )
         setHandleAudioBecomingNoisy(true)
         volume = 1f
@@ -83,7 +83,7 @@ class MusicService : MediaSessionService() {
 
     private fun startFade(source: ExoPlayer, nextIndex: Int, durationMs: Long) {
         cancelFade()
-        val target = createPlayer()
+        val target = createPlayer(handleAudioFocus = false)
         val items = (0 until source.mediaItemCount).map { source.getMediaItemAt(it) }
         target.setMediaItems(items, nextIndex, 0L)
         target.shuffleModeEnabled = false
@@ -105,6 +105,10 @@ class MusicService : MediaSessionService() {
         }
         source.volume = 0f
         target.volume = 1f
+        target.setAudioAttributes(
+            AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
+            true
+        )
         target.shuffleModeEnabled = source.shuffleModeEnabled
         target.repeatMode = source.repeatMode
         mediaSession?.setPlayer(target)
