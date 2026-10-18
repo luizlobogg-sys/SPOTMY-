@@ -139,7 +139,7 @@ class MainActivity : ComponentActivity() {
                 colorScheme = if (lightTheme) lightColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White) else darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White),
                 typography = typographyFor(customFontFamilies["app"] ?: FontFamily.Default)
             ) {
-                SpotmyApp(tracks, permissionGranted, controller, customFontFamilies,
+                SpotmyApp(tracks, permissionGranted, controller, customFontFamilies, lightTheme, accentArgb,
                     { permissionLauncher.launch(audioPermission) }, ::refreshTracks, ::playTrack, ::playTracks, ::queueNext,
                     { light, accent -> lightTheme = light; accentArgb = accent; getSharedPreferences("spotmy_appearance", MODE_PRIVATE).edit().putBoolean("light_theme", light).putLong("accent_argb", accent).apply(); applyAppearance(); appearanceVersion++ },
                     { area -> selectedFontArea = area; fontPickerLauncher.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream")) })
@@ -203,7 +203,7 @@ private enum class Tab { HOME, SEARCH, LIBRARY, SETTINGS }
 
 @Composable
 private fun SpotmyApp(
-    tracks: List<Track>, hasPermission: Boolean, player: MediaController?, fontFamilies: Map<String, FontFamily>,
+    tracks: List<Track>, hasPermission: Boolean, player: MediaController?, fontFamilies: Map<String, FontFamily>, lightTheme: Boolean, accentArgb: Long,
     onPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Track) -> Unit, onPlayQueue: (List<Track>) -> Unit, onQueueNext: (Track) -> Unit, onAppearanceChange: (Boolean, Long) -> Unit, onImportFont: (String) -> Unit
 ) {
     var tab by remember { mutableStateOf(Tab.HOME) }
@@ -262,12 +262,11 @@ private fun SpotmyApp(
             }
         ) { padding ->
             Box(Modifier.fillMaxSize().background(Black).padding(padding)) {
-                val currentAppearance = appearanceVersion
-        when (tab) {
+                when (tab) {
                     Tab.HOME -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["home"] ?: fontFamilies["app"] ?: FontFamily.Default)) { HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { onPlayQueue(it); expandedPlayer = true }, onQueueNext, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS }) }
                     Tab.SEARCH -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["search"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SearchScreen(query, { query = it }, filtered, hasPermission, onPermission, onQueueNext) { onPlay(it); expandedPlayer = true } }
                     Tab.LIBRARY -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["library"] ?: fontFamilies["app"] ?: FontFamily.Default)) { LibraryScreen(tracks, hasPermission, onPermission, onRefresh, onQueueNext) { onPlay(it); expandedPlayer = true } }
-                    Tab.SETTINGS -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["settings"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SettingsScreen(player, fontFamilies, lightTheme = Black != Color(0xFF121212), accentArgb = accentArgb, onAppearanceChange = onAppearanceChange, onImportFont = onImportFont) }
+                    Tab.SETTINGS -> MaterialTheme(colorScheme = darkColorScheme(primary = Green, background = Black, surface = Panel, onBackground = White, onSurface = White), typography = typographyFor(fontFamilies["settings"] ?: fontFamilies["app"] ?: FontFamily.Default)) { SettingsScreen(player, fontFamilies, lightTheme = lightTheme, accentArgb = accentArgb, onAppearanceChange = onAppearanceChange, onImportFont = onImportFont) }
                 }
             }
         }
