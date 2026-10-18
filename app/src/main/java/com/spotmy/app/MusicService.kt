@@ -43,7 +43,7 @@ class MusicService : MediaSessionService() {
                 val remaining = source.duration - source.currentPosition
                 val fadeMs = min(configuredMs, (source.duration / 2L).coerceAtLeast(1000L))
                 if (nextIndex != C.INDEX_UNSET && nextIndex in 0 until source.mediaItemCount && remaining in 1..fadeMs) {
-                    startFade(source, nextIndex, fadeMs)
+                    startFade(source, nextIndex, remaining)
                 }
             } else {
                 val target = fadeTarget
