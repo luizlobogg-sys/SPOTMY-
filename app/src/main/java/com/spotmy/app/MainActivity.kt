@@ -752,7 +752,7 @@ private fun SnapMyScreen(onRefresh: () -> Unit) {
         Text("O que o SNAPMY aceita", color = White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
         Text("• Links diretos de arquivos de áudio, quando o site permite baixar.\n• Download pelo gerenciador nativo do Android, com notificação de progresso.\n• Arquivos salvos em Música/SPOTMY para você adicionar à biblioteca local.", color = Gray, fontSize = 13.sp)
         Text("Limite importante", color = White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        Text("Links de playlists do Spotify, Deezer ou YouTube normalmente apontam para páginas e não para os arquivos de áudio. O SNAPMY não remove DRM nem contorna proteções; para essas playlists, use exportação autorizada (por exemplo, CSV do SOUNDIZZ) e arquivos que você tenha direito de baixar.", color = Gray, fontSize = 12.sp)
+        Text("Links de playlists do Spotify ou Deezer normalmente apontam para páginas, não para arquivos de áudio. O SNAPMY não remove DRM nem contorna proteções. Para o YouTube, a integração de extração ainda precisa ser adicionada; use downloads apenas de conteúdo que você tenha direito de salvar.", color = Gray, fontSize = 12.sp)
     }
 }
 
