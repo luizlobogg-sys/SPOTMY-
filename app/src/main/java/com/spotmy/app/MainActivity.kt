@@ -1000,6 +1000,49 @@ private fun SettingsScreen(player: MediaController?, fontFamilies: Map<String, F
             Text("Funciona automaticamente entre faixas da fila. Padrão: 5 segundos.", color = Gray, fontSize = 11.sp)
         }
         Divider(color = PanelLight, modifier = Modifier.padding(vertical = 8.dp))
+        Text("ÁUDIO", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        Text("Perfil de som", color = White, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("custom" to "Personalizado", "bass" to "Graves", "vocal" to "Voz", "treble" to "Agudos").forEach { (key, label) ->
+                FilterChip(selected = audioProfile == key, onClick = {
+                    audioProfile = key
+                    playbackPrefs.edit().putString("audio_profile", key).apply()
+                }, label = { Text(label) })
+            }
+        }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) { Text("Graves", color = White, modifier = Modifier.weight(1f)); Text("${bass.toInt()}", color = Green) }
+            Slider(value = bass, onValueChange = { bass = it; audioProfile = "custom"; playbackPrefs.edit().putInt("bass_level", it.toInt()).putString("audio_profile", "custom").apply() }, valueRange = -100f..100f, enabled = audioProfile == "custom")
+            Row(verticalAlignment = Alignment.CenterVertically) { Text("Agudos", color = White, modifier = Modifier.weight(1f)); Text("${treble.toInt()}", color = Green) }
+            Slider(value = treble, onValueChange = { treble = it; audioProfile = "custom"; playbackPrefs.edit().putInt("treble_level", it.toInt()).putString("audio_profile", "custom").apply() }, valueRange = -100f..100f, enabled = audioProfile == "custom")
+            Text("O efeito depende do suporte do dispositivo e é aplicado durante a reprodução.", color = Gray, fontSize = 11.sp)
+        }
+        Divider(color = PanelLight, modifier = Modifier.padding(vertical = 8.dp))
+        Text("DESLIGAMENTO AUTOMÁTICO", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        Text("Desligar após", color = White, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(15, 30, 45, 60, 90).forEach { minutes ->
+                FilterChip(selected = timerMinutes == minutes, onClick = {
+                    timerMinutes = minutes
+                    playbackPrefs.edit().putLong("sleep_timer_end", System.currentTimeMillis() + minutes * 60_000L).apply()
+                }, label = { Text("${minutes} min") })
+            }
+            FilterChip(selected = timerMinutes == 0, onClick = {
+                timerMinutes = 0
+                playbackPrefs.edit().remove("sleep_timer_end").apply()
+            }, label = { Text("Cancelar") })
+        }
+        Row(Modifier.fillMaxWidth().clickable {
+            stopAtTrackEnd = !stopAtTrackEnd
+            playbackPrefs.edit().putBoolean("stop_on_track_end", stopAtTrackEnd).apply()
+        }.padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) { Text("Ao terminar a faixa", color = White); Text("Parar quando a música atual terminar", color = Gray, fontSize = 12.sp) }
+            Switch(checked = stopAtTrackEnd, onCheckedChange = {
+                stopAtTrackEnd = it
+                playbackPrefs.edit().putBoolean("stop_on_track_end", it).apply()
+            })
+        }
+        Divider(color = PanelLight, modifier = Modifier.padding(vertical = 8.dp))
         Text("LETRAS E IDENTIFICAÇÃO", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
         Row(Modifier.fillMaxWidth().clickable { uriHandler.openUri("https://www.google.com/search?q=identificar+m%C3%BAsica+online") }.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.GraphicEq, null, tint = White)
@@ -1013,6 +1056,27 @@ private fun SettingsScreen(player: MediaController?, fontFamilies: Map<String, F
         }
         Divider(color = PanelLight, modifier = Modifier.padding(vertical = 8.dp))
         Text("APARÊNCIA", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        Row(Modifier.fillMaxWidth().clickable { onAppearanceChange(!lightTheme, accentArgb) }.padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(if (lightTheme) Icons.Default.LightMode else Icons.Default.DarkMode, null, tint = Green)
+            Column(Modifier.weight(1f).padding(start = 14.dp)) { Text("Tema claro", color = White); Text("Alternar entre aparência clara e escura", color = Gray, fontSize = 12.sp) }
+            Switch(checked = lightTheme, onCheckedChange = { onAppearanceChange(it, accentArgb) })
+        }
+        Text("Cor de destaque", color = White, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            listOf(0xFF1ED760L, 0xFF5B9DFFL, 0xFFFF6B6BL, 0xFFB084F5L, 0xFFFFB547L).forEach { colorValue ->
+                Box(Modifier.size(34.dp).clip(CircleShape).background(Color(colorValue.toULong())).clickable { onAppearanceChange(lightTheme, colorValue) },
+                    contentAlignment = Alignment.Center) {
+                    if (accentArgb == colorValue) Icon(Icons.Default.Check, null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().clickable {
+            animationsEnabled = !animationsEnabled
+            appearancePrefs.edit().putBoolean("animations_enabled", animationsEnabled).apply()
+        }.padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) { Text("Animações", color = White); Text("Preferência de movimento da interface", color = Gray, fontSize = 12.sp) }
+            Switch(checked = animationsEnabled, onCheckedChange = { animationsEnabled = it; appearancePrefs.edit().putBoolean("animations_enabled", it).apply() })
+        }
         Text("Escolha uma área específica ou altere a tipografia do aplicativo inteiro.", color = Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
         var areaMenu by remember { mutableStateOf(false) }
         Box(Modifier.padding(horizontal = 20.dp)) {
