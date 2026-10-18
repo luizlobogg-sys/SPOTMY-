@@ -99,7 +99,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Tab { HOME, SEARCH, LIBRARY }
+private enum class Tab { HOME, SEARCH, LIBRARY, SETTINGS }
 
 @Composable
 private fun SpotmyApp(
@@ -145,7 +145,7 @@ private fun SpotmyApp(
                     NavigationBar(containerColor = Color.Black, tonalElevation = 0.dp, modifier = Modifier.height(64.dp)) {
                         listOf(Triple(Tab.HOME, "Início", Icons.Default.Home),
                             Triple(Tab.SEARCH, "Buscar", Icons.Default.Search),
-                            Triple(Tab.LIBRARY, "Sua Biblioteca", Icons.Default.LibraryMusic)).forEach { item ->
+                            Triple(Tab.LIBRARY, "Sua Biblioteca", Icons.Default.LibraryMusic), Triple(Tab.SETTINGS, "Configurações", Icons.Default.Settings)).forEach { item ->
                             NavigationBarItem(
                                 selected = tab == item.first, onClick = { tab = item.first },
                                 icon = { Icon(item.third, item.second, Modifier.size(24.dp)) },
@@ -161,9 +161,10 @@ private fun SpotmyApp(
         ) { padding ->
             Box(Modifier.fillMaxSize().background(Black).padding(padding)) {
                 when (tab) {
-                    Tab.HOME -> HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { tab = Tab.SEARCH })
+                    Tab.HOME -> HomeScreen(tracks, hasPermission, onPermission, { onPlay(it); expandedPlayer = true }, { tab = Tab.SEARCH }, { tab = Tab.SETTINGS })
                     Tab.SEARCH -> SearchScreen(query, { query = it }, filtered, hasPermission, onPermission) { onPlay(it); expandedPlayer = true }
                     Tab.LIBRARY -> LibraryScreen(tracks, hasPermission, onPermission, onRefresh) { onPlay(it); expandedPlayer = true }
+                    Tab.SETTINGS -> SettingsScreen(player)
                 }
             }
         }
@@ -171,7 +172,7 @@ private fun SpotmyApp(
 }
 
 @Composable
-private fun HomeScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -> Unit, onPlay: (Track) -> Unit, onSearch: () -> Unit) {
+private fun HomeScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -> Unit, onPlay: (Track) -> Unit, onSearch: () -> Unit, onSettings: () -> Unit) {
     var filter by remember { mutableStateOf("Tudo") }
     val albums = tracks.distinctBy { if (it.album.isBlank()) it.id.toString() else it.album + "|" + it.artist }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
@@ -184,7 +185,7 @@ private fun HomeScreen(tracks: List<Track>, allowed: Boolean, onPermission: () -
                     }
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = onSearch) { Icon(Icons.Default.History, "Recentes", tint = White) }
-                    IconButton(onClick = {}) { Icon(Icons.Default.Settings, "Configurações", tint = White) }
+                    IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Configurações", tint = White) }
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -405,6 +406,49 @@ private fun NowPlaying(title: String, artist: String, album: String, artwork: Ur
             }
             Spacer(Modifier.height(20.dp))
         }
+    }
+}
+
+
+@Composable
+private fun SettingsScreen(player: MediaController?) {
+    var shuffle by remember(player) { mutableStateOf(player?.shuffleModeEnabled ?: false) }
+    var repeat by remember(player) { mutableIntStateOf(player?.repeatMode ?: androidx.media3.common.Player.REPEAT_MODE_OFF) }
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    Column(Modifier.fillMaxSize().background(Black)) {
+        Text("Configurações", color = White, fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 20.dp, top = 22.dp, bottom = 18.dp))
+        Text("REPRODUÇÃO", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        Row(Modifier.fillMaxWidth().clickable { shuffle = !shuffle; player?.shuffleModeEnabled = shuffle }.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Shuffle, null, tint = if (shuffle) Green else White)
+            Column(Modifier.weight(1f).padding(start = 16.dp)) { Text("Reprodução aleatória", color = White); Text("Embaralhar a fila atual", color = Gray, fontSize = 12.sp) }
+            Switch(checked = shuffle, onCheckedChange = { shuffle = it; player?.shuffleModeEnabled = it })
+        }
+        Row(Modifier.fillMaxWidth().clickable {
+            repeat = when (repeat) { androidx.media3.common.Player.REPEAT_MODE_OFF -> androidx.media3.common.Player.REPEAT_MODE_ALL; androidx.media3.common.Player.REPEAT_MODE_ALL -> androidx.media3.common.Player.REPEAT_MODE_ONE; else -> androidx.media3.common.Player.REPEAT_MODE_OFF }
+            player?.repeatMode = repeat
+        }.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Repeat, null, tint = if (repeat == androidx.media3.common.Player.REPEAT_MODE_OFF) White else Green)
+            Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                Text("Repetição", color = White)
+                Text(when (repeat) { androidx.media3.common.Player.REPEAT_MODE_ALL -> "Repetir fila inteira"; androidx.media3.common.Player.REPEAT_MODE_ONE -> "Repetir música atual"; else -> "Desativada" }, color = Gray, fontSize = 12.sp)
+            }
+            Text(when (repeat) { androidx.media3.common.Player.REPEAT_MODE_ALL -> "Tudo"; androidx.media3.common.Player.REPEAT_MODE_ONE -> "1"; else -> "Off" }, color = Green)
+        }
+        Divider(color = PanelLight, modifier = Modifier.padding(vertical = 8.dp))
+        Text("LETRAS E IDENTIFICAÇÃO", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        Row(Modifier.fillMaxWidth().clickable { uriHandler.openUri("https://www.google.com/search?q=identificar+m%C3%BAsica+online") }.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.GraphicEq, null, tint = White)
+            Column(Modifier.weight(1f).padding(start = 16.dp)) { Text("Identificar uma música", color = White); Text("Abrir busca de reconhecimento musical", color = Gray, fontSize = 12.sp) }
+            Icon(Icons.Default.OpenInNew, null, tint = Gray)
+        }
+        Row(Modifier.fillMaxWidth().clickable { uriHandler.openUri("https://www.google.com/search?q=letra+da+m%C3%BAsica") }.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Lyrics, null, tint = White)
+            Column(Modifier.weight(1f).padding(start = 16.dp)) { Text("Encontrar letras", color = White); Text("Pesquisar letras na internet", color = Gray, fontSize = 12.sp) }
+            Icon(Icons.Default.OpenInNew, null, tint = Gray)
+        }
+        Divider(color = PanelLight, modifier = Modifier.padding(vertical = 8.dp))
+        Text("SPOTMY 2.5.1.0", color = White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        Text("Player de músicas locais. Recursos online abrem serviços externos.", color = Gray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp))
     }
 }
 
