@@ -273,8 +273,7 @@ private fun SearchScreen(query: String, onQuery: (String) -> Unit, tracks: List<
                 columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(2), modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                gridItems(categories.size) { index ->
-                    val category = categories[index]
+                gridItems(categories) { category ->
                     Box(Modifier.fillMaxWidth().height(100.dp).clip(RoundedCornerShape(7.dp)).background(Color(category.second))
                         .clickable { onQuery(category.first) }.padding(12.dp)) {
                         Text(category.first, color = White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
