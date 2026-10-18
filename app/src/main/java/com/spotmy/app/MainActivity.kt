@@ -549,6 +549,8 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
         }.getOrDefault(emptyMap()))
     }
     var showCreatePlaylist by remember { mutableStateOf(false) }
+    var selectedArtist by remember { mutableStateOf<String?>(null) }
+    val artistList = remember(tracks) { tracks.flatMap { splitArtistCredits(it.artist) }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() } }
     var playlistName by remember { mutableStateOf("") }
     var editingPlaylist by remember { mutableStateOf<String?>(null) }
     fun persistPlaylists(value: Map<String, Set<Long>>) {
@@ -580,6 +582,33 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
         else if (tracks.isEmpty()) EmptyCard("Sua biblioteca está vazia", "As músicas locais aparecerão aqui quando houver arquivos de áudio no aparelho.", "Atualizar", onRefresh, Modifier.padding(horizontal = 16.dp))
         else {
             if (filter == "Playlists") {
+                Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+                    Button(onClick = { showCreatePlaylist = true }, modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) {
+                        Icon(Icons.Default.Add, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Criar playlist")
+                    }
+                    LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+                        items(playlists.keys.sorted(), key = { it }) { name ->
+                            val ids = playlists[name] ?: emptySet()
+                            val playlistTracks = tracks.filter { it.id in ids }
+                            Row(Modifier.fillMaxWidth().clickable { editingPlaylist = name }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(54.dp).clip(RoundedCornerShape(6.dp)).background(PanelLight), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.QueueMusic, null, tint = Green, modifier = Modifier.size(28.dp))
+                                }
+                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                    Text(name, color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(playlistTracks.size.toString() + " músicas • tocar para editar", color = Gray, fontSize = 12.sp)
+                                }
+                                IconButton(onClick = { if (playlistTracks.isNotEmpty()) onPlay(playlistTracks.first()) else editingPlaylist = name }) {
+                                    Icon(Icons.Default.PlayArrow, "Reproduzir playlist", tint = Green)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (filter == "Artistas" && selectedArtist == null) {
                 LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
                     items(artistList, key = { "artist-" + it.lowercase() }) { name ->
                         val count = tracks.count { track -> splitArtistCredits(track.artist).any { it.equals(name, true) } }
@@ -598,8 +627,16 @@ private fun LibraryScreen(tracks: List<Track>, allowed: Boolean, onPermission: (
                     Icon(Icons.Default.ArrowBack, null, tint = Green)
                     Text("Todos os artistas  /  " + selectedArtist.orEmpty(), color = White, modifier = Modifier.padding(start = 8.dp))
                 }
-                LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
-                    items(list, key = { "lib-" + it.id }) { track ->
+                val visibleTracks = when (filter) {
+                    "Artistas" -> tracks.filter { track -> splitArtistCredits(track.artist).any { it.equals(selectedArtist, true) } }
+                    "Álbuns" -> tracks.distinctBy { if (it.album.isBlank()) it.id.toString() else it.album + "|" + it.artist }
+                    "Podcasts" -> emptyList()
+                    else -> if (alphabetical) tracks.sortedBy { it.title.lowercase() } else tracks
+                }
+                if (filter == "Podcasts") {
+                    Text("Sua biblioteca local não tem uma seção de podcasts separada.", color = Gray, modifier = Modifier.padding(16.dp))
+                } else LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+                    items(visibleTracks, key = { "lib-" + it.id }) { track ->
                         if (filter == "Álbuns") {
                             Row(Modifier.fillMaxWidth().clickable { onPlay(track) }.padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Cover(track.artworkUri, Modifier.size(54.dp), false)
